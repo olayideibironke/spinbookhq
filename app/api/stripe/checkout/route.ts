@@ -1,10 +1,23 @@
-import { NextResponse } from "next/server";
+﻿import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
-// We keep Stripe init server-only. Requires STRIPE_SECRET_KEY in env.
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "", {
-  apiVersion: "2025-12-15.clover",
-});
+let stripeSingleton: Stripe | null = null;
+
+function getStripe() {
+  const key = process.env.STRIPE_SECRET_KEY;
+  if (!key) {
+    // Do not crash at import/build time — only when the route is called.
+    throw new Error("Missing STRIPE_SECRET_KEY in environment variables.");
+  }
+
+  if (!stripeSingleton) {
+    stripeSingleton = new Stripe(key, {
+      apiVersion: "2025-12-15.clover",
+    });
+  }
+
+  return stripeSingleton;
+}
 
 type CheckoutRequestBody = {
   amount: number; // in dollars (or main currency unit), e.g. 150
@@ -16,13 +29,6 @@ type CheckoutRequestBody = {
 
 export async function POST(req: Request) {
   try {
-    if (!process.env.STRIPE_SECRET_KEY) {
-      return NextResponse.json(
-        { error: "Missing STRIPE_SECRET_KEY in environment variables." },
-        { status: 500 }
-      );
-    }
-
     const body = (await req.json()) as CheckoutRequestBody;
 
     const currency = (body.currency || "usd").toLowerCase();
@@ -47,7 +53,11 @@ export async function POST(req: Request) {
       ? `${origin}/dj/${djSlug}/book?ok=1&session_id={CHECKOUT_SESSION_ID}`
       : `${origin}/?ok=1&session_id={CHECKOUT_SESSION_ID}`;
 
-    const cancelUrl = djSlug ? `${origin}/dj/${djSlug}/book?ok=0` : `${origin}/?ok=0`;
+    const cancelUrl = djSlug
+      ? `${origin}/dj/${djSlug}/book?ok=0`
+      : `${origin}/?ok=0`;
+
+    const stripe = getStripe();
 
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
