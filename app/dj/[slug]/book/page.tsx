@@ -80,8 +80,19 @@ export default async function DjBookingPage({
 
     const sb = await createClient();
 
+    // ✅ Re-fetch DJ inside server action (build-safe + avoids capturing `dj`)
+    const { data: djRow, error: djRowErr } = await sb
+      .from("dj_profiles")
+      .select("user_id, published")
+      .eq("slug", slug)
+      .maybeSingle<{ user_id: string; published: boolean | null }>();
+
+    if (djRowErr || !djRow || djRow.published !== true) {
+      redirect(`/dj/${slug}/book?ok=0`);
+    }
+
     const { error: insertErr } = await sb.from("booking_requests").insert({
-      dj_user_id: dj.user_id,
+      dj_user_id: djRow.user_id,
       requester_name: name,
       requester_email: email,
       event_date: eventDate,
