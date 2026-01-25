@@ -99,11 +99,19 @@ export default async function DashboardRequestsPage({
 
     const supabase = await createClient();
 
+    // ✅ Re-check auth INSIDE the server action (Vercel build-safe)
+    const {
+      data: { user: authedUser },
+      error: authedUserError,
+    } = await supabase.auth.getUser();
+
+    if (authedUserError || !authedUser) redirect("/login");
+
     await supabase
       .from("booking_requests")
       .update({ status })
       .eq("id", requestId)
-      .eq("dj_user_id", user.id);
+      .eq("dj_user_id", authedUser.id);
 
     revalidatePath("/dashboard/requests");
     revalidatePath(`/dashboard/requests/${requestId}`);
@@ -118,6 +126,14 @@ export default async function DashboardRequestsPage({
 
     const supabase = await createClient();
 
+    // ✅ Re-check auth INSIDE the server action (Vercel build-safe)
+    const {
+      data: { user: authedUser },
+      error: authedUserError,
+    } = await supabase.auth.getUser();
+
+    if (authedUserError || !authedUser) redirect("/login");
+
     // Fetch the request and validate ownership
     const { data: req, error: reqErr } = await supabase
       .from("booking_requests")
@@ -128,7 +144,7 @@ export default async function DashboardRequestsPage({
       .single();
 
     if (reqErr || !req) return;
-    if (req.dj_user_id !== user.id) return;
+    if (req.dj_user_id !== authedUser.id) return;
 
     // Only allow generating for accepted requests that haven't paid
     if (req.status !== "accepted") return;
@@ -186,7 +202,7 @@ export default async function DashboardRequestsPage({
         stripe_checkout_session_id: session.id,
       })
       .eq("id", requestId)
-      .eq("dj_user_id", user.id);
+      .eq("dj_user_id", authedUser.id);
 
     revalidatePath("/dashboard/requests");
     revalidatePath(`/dashboard/requests/${requestId}`);
