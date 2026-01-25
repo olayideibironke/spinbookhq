@@ -103,6 +103,14 @@ export default async function DashboardProfilePage(props: {
     const cookieStore = await cookies();
     const supabase = buildSupabase(cookieStore);
 
+    // ✅ Re-check auth INSIDE the server action (Vercel build-safe)
+    const {
+      data: { user: authedUser },
+      error: authedUserError,
+    } = await supabase.auth.getUser();
+
+    if (authedUserError || !authedUser) redirect("/login");
+
     const stage_name = String(formData.get("stage_name") ?? "").trim();
     const slug = String(formData.get("slug") ?? "").trim();
     const city = String(formData.get("city") ?? "").trim();
@@ -140,7 +148,7 @@ export default async function DashboardProfilePage(props: {
       .eq("slug", normalizedSlug)
       .maybeSingle<{ user_id: string; slug: string }>();
 
-    if (existing?.user_id && existing.user_id !== user.id) {
+    if (existing?.user_id && existing.user_id !== authedUser.id) {
       redirect(
         `/dashboard/profile?msg=${encodeURIComponent(
           "That slug is already taken. Try another."
@@ -149,7 +157,7 @@ export default async function DashboardProfilePage(props: {
     }
 
     const payload = {
-      user_id: user.id,
+      user_id: authedUser.id,
       stage_name,
       slug: normalizedSlug,
       city,
