@@ -3,7 +3,7 @@ import Stripe from "stripe";
 
 // We keep Stripe init server-only. Requires STRIPE_SECRET_KEY in env.
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "", {
-  apiVersion: "2025-08-27.basil", // if this errors, we’ll downgrade to your installed stripe api version
+  apiVersion: "2025-12-15.clover",
 });
 
 type CheckoutRequestBody = {
@@ -47,9 +47,7 @@ export async function POST(req: Request) {
       ? `${origin}/dj/${djSlug}/book?ok=1&session_id={CHECKOUT_SESSION_ID}`
       : `${origin}/?ok=1&session_id={CHECKOUT_SESSION_ID}`;
 
-    const cancelUrl = djSlug
-      ? `${origin}/dj/${djSlug}/book?ok=0`
-      : `${origin}/?ok=0`;
+    const cancelUrl = djSlug ? `${origin}/dj/${djSlug}/book?ok=0` : `${origin}/?ok=0`;
 
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
