@@ -7,6 +7,7 @@ import { stripe } from "@/lib/stripe";
 export const dynamic = "force-dynamic";
 
 type BookingStatus = "new" | "accepted" | "declined" | "closed";
+type FilterKey = "all" | BookingStatus;
 
 type BookingRequest = {
   id: string;
@@ -41,7 +42,7 @@ function statusPillClasses(status: BookingStatus) {
     "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold tracking-wide";
   switch (status) {
     case "new":
-      return `${base} border-white/10 bg-white/[0.04] text-white/80`;
+      return `${base} border-white/10 bg-white/[0.04] text-white/85`;
     case "accepted":
       return `${base} border-violet-400/20 bg-violet-500/10 text-violet-200`;
     case "declined":
@@ -76,7 +77,10 @@ export default async function DashboardRequestsPage({
 }) {
   const sp = (await searchParams) ?? {};
   const statusParam = (sp.status ?? "").trim().toLowerCase();
-  const activeStatus = isValidStatus(statusParam) ? statusParam : "all";
+
+  const activeStatus: FilterKey = isValidStatus(statusParam)
+    ? statusParam
+    : "all";
 
   const supabase = await createClient();
 
@@ -99,7 +103,6 @@ export default async function DashboardRequestsPage({
 
     const supabase = await createClient();
 
-    // ✅ Re-check auth INSIDE the server action (Vercel build-safe)
     const {
       data: { user: authedUser },
       error: authedUserError,
@@ -126,7 +129,6 @@ export default async function DashboardRequestsPage({
 
     const supabase = await createClient();
 
-    // ✅ Re-check auth INSIDE the server action (Vercel build-safe)
     const {
       data: { user: authedUser },
       error: authedUserError,
@@ -134,7 +136,6 @@ export default async function DashboardRequestsPage({
 
     if (authedUserError || !authedUser) redirect("/login");
 
-    // Fetch the request and validate ownership
     const { data: req, error: reqErr } = await supabase
       .from("booking_requests")
       .select(
@@ -146,18 +147,15 @@ export default async function DashboardRequestsPage({
     if (reqErr || !req) return;
     if (req.dj_user_id !== authedUser.id) return;
 
-    // Only allow generating for accepted requests that haven't paid
     if (req.status !== "accepted") return;
     if (req.deposit_paid) return;
 
-    // If already exists, just revalidate and exit
     if (req.checkout_url) {
       revalidatePath("/dashboard/requests");
       revalidatePath(`/dashboard/requests/${requestId}`);
       return;
     }
 
-    // fetch DJ slug so success/cancel can route back to the DJ profile
     const { data: djProfile } = await supabase
       .from("dj_profiles")
       .select("slug")
@@ -168,9 +166,9 @@ export default async function DashboardRequestsPage({
     const djSlugParam = djSlug ? `&dj=${encodeURIComponent(djSlug)}` : "";
 
     const origin =
-      process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") || "http://localhost:3000";
+      process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ||
+      "http://localhost:3000";
 
-    // Create Stripe Checkout Session (Deposit)
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       customer_email: req.requester_email,
@@ -182,7 +180,7 @@ export default async function DashboardRequestsPage({
               name: "DJ Booking Deposit",
               description: `Deposit for booking request ${requestId}`,
             },
-            unit_amount: 5000, // $50.00
+            unit_amount: 5000,
           },
           quantity: 1,
         },
@@ -209,6 +207,16 @@ export default async function DashboardRequestsPage({
     revalidatePath("/dashboard");
   }
 
+  // Fetch DJ slug to help “share your link” in empty state
+  const { data: djProfileForShare } = await supabase
+    .from("dj_profiles")
+    .select("slug")
+    .eq("user_id", user.id)
+    .maybeSingle<{ slug: string | null }>();
+
+  const mySlug = String(djProfileForShare?.slug ?? "").trim();
+  const myPublicProfilePath = mySlug ? `/dj/${mySlug}` : null;
+
   let query = supabase
     .from("booking_requests")
     .select(
@@ -227,20 +235,16 @@ export default async function DashboardRequestsPage({
     return (
       <main className="p-6">
         <div className="mx-auto w-full max-w-6xl">
-          <h1 className="text-3xl font-bold">Booking Requests</h1>
-          <p className="mt-4 text-sm">
-            Error: <span className="font-mono">{error.message}</span>
+          <h1 className="text-3xl font-bold text-white">Booking Requests</h1>
+          <p className="mt-4 text-sm text-white/70">
+            Error: <span className="font-mono text-white/85">{error.message}</span>
           </p>
         </div>
       </main>
     );
   }
 
-  const filterItems: Array<{
-    key: "all" | BookingStatus;
-    label: string;
-    href: string;
-  }> = [
+  const filterItems: Array<{ key: FilterKey; label: string; href: string }> = [
     { key: "all", label: "All", href: "/dashboard/requests" },
     { key: "new", label: "New", href: "/dashboard/requests?status=new" },
     { key: "accepted", label: "Accepted", href: "/dashboard/requests?status=accepted" },
@@ -257,32 +261,30 @@ export default async function DashboardRequestsPage({
     <main className="p-6">
       <div className="mx-auto w-full max-w-6xl">
         {/* Page header */}
-        <div className="flex flex-col gap-2">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <h1 className="text-3xl font-extrabold tracking-tight text-white">
-                Booking Requests
-              </h1>
-              <p className="mt-1 text-sm text-white/65">
-                Requests sent to your DJ profile.
-              </p>
-            </div>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h1 className="text-3xl font-extrabold tracking-tight text-white">
+              Booking Requests
+            </h1>
+            <p className="mt-1 text-sm text-white/65">
+              Your booking inbox. Respond fast to convert more gigs.
+            </p>
+          </div>
 
-            {/* Quick stats */}
-            <div className="flex flex-wrap items-center gap-2">
-              <span className={depositPillClasses("none")}>
-                <span className="opacity-70">Total</span> {total}
-              </span>
-              <span className={depositPillClasses("paid")}>
-                <span className="opacity-80">Paid</span> {paidCount}
-              </span>
-              <span className={depositPillClasses("awaiting")}>
-                <span className="opacity-80">Awaiting</span> {awaitingCount}
-              </span>
-              <span className={statusPillClasses("new")}>
-                <span className="opacity-80">New</span> {newCount}
-              </span>
-            </div>
+          {/* Quick stats */}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={depositPillClasses("none")}>
+              <span className="opacity-70">Total</span> {total}
+            </span>
+            <span className={depositPillClasses("paid")}>
+              <span className="opacity-80">Paid</span> {paidCount}
+            </span>
+            <span className={depositPillClasses("awaiting")}>
+              <span className="opacity-80">Awaiting</span> {awaitingCount}
+            </span>
+            <span className={statusPillClasses("new")}>
+              <span className="opacity-80">New</span> {newCount}
+            </span>
           </div>
         </div>
 
@@ -320,12 +322,34 @@ export default async function DashboardRequestsPage({
         {/* Empty state */}
         {(!requests || requests.length === 0) && (
           <div className="mt-6 rounded-3xl border border-white/10 bg-white/[0.03] p-6 shadow-[0_0_0_1px_rgba(255,255,255,0.03)] backdrop-blur">
-            <p className="text-base font-semibold text-white">No requests</p>
+            <p className="text-base font-semibold text-white">No requests yet</p>
             <p className="mt-1 text-sm text-white/65">
               {activeStatus === "all"
-                ? "When someone submits a booking request, it will show up here."
+                ? "When clients submit a booking request, it will show up here."
                 : "No requests match this filter."}
             </p>
+
+            {activeStatus === "all" ? (
+              <div className="mt-5 flex flex-wrap items-center gap-2">
+                {myPublicProfilePath ? (
+                  <>
+                    <Link
+                      href={myPublicProfilePath}
+                      className="inline-flex items-center justify-center rounded-2xl bg-white/10 px-4 py-2.5 text-sm font-extrabold text-white hover:bg-white/15"
+                    >
+                      View your public profile →
+                    </Link>
+                    <span className="text-xs text-white/55">
+                      Share this link to get bookings faster.
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-xs text-white/55">
+                    Tip: set your profile slug and publish to start receiving requests.
+                  </span>
+                )}
+              </div>
+            ) : null}
           </div>
         )}
 
@@ -348,21 +372,33 @@ export default async function DashboardRequestsPage({
               ? "Not generated"
               : "Accept to enable";
 
+            const isNew = r.status === "new";
+
             return (
               <li
                 key={r.id}
                 className={[
                   "rounded-3xl border p-6 transition",
-                  "border-white/10 bg-white/[0.03] shadow-[0_0_0_1px_rgba(255,255,255,0.03)] backdrop-blur",
+                  isNew
+                    ? "border-fuchsia-400/25 bg-white/[0.04]"
+                    : "border-white/10 bg-white/[0.03]",
+                  "shadow-[0_0_0_1px_rgba(255,255,255,0.03)] backdrop-blur",
                   "hover:-translate-y-[1px] hover:bg-white/[0.05] hover:shadow-[0_0_0_1px_rgba(255,255,255,0.06)]",
                 ].join(" ")}
               >
                 {/* Top row */}
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0">
-                    <p className="truncate text-base font-semibold text-white">
-                      {r.requester_name}
-                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="truncate text-base font-semibold text-white">
+                        {r.requester_name}
+                      </p>
+                      {isNew ? (
+                        <span className="inline-flex items-center rounded-full border border-fuchsia-400/20 bg-fuchsia-500/10 px-2.5 py-0.5 text-[11px] font-extrabold text-fuchsia-200">
+                          NEW
+                        </span>
+                      ) : null}
+                    </div>
                     <p className="truncate text-sm text-white/65">{r.requester_email}</p>
                   </div>
 
@@ -400,7 +436,7 @@ export default async function DashboardRequestsPage({
                   ) : null}
 
                   <div className="text-xs text-white/55">
-                    Submitted: {new Date(r.created_at).toLocaleString()}
+                    Submitted: {formatDateTime(r.created_at)}
                   </div>
                 </div>
 
@@ -410,7 +446,7 @@ export default async function DashboardRequestsPage({
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="text-sm font-semibold text-white">Deposit</p>
-                        <span className={depositPillClasses(depositKind as any)}>
+                        <span className={depositPillClasses(depositKind)}>
                           {depositLabel}
                           {r.deposit_paid ? <span className="opacity-90">✅</span> : null}
                         </span>
@@ -451,7 +487,6 @@ export default async function DashboardRequestsPage({
                         <form action={generateDepositLink}>
                           <input type="hidden" name="requestId" value={r.id} />
                           <button
-                            data-variant="primary"
                             className="inline-flex items-center justify-center rounded-2xl bg-gradient-to-r from-fuchsia-600 to-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-fuchsia-600/20 ring-1 ring-white/10 transition hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-violet-400/40"
                           >
                             Generate deposit link
@@ -469,10 +504,7 @@ export default async function DashboardRequestsPage({
                       <form action={setStatus}>
                         <input type="hidden" name="requestId" value={r.id} />
                         <input type="hidden" name="status" value="accepted" />
-                        <button
-                          data-variant="primary"
-                          className="inline-flex items-center justify-center rounded-2xl bg-gradient-to-r from-fuchsia-600 to-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-fuchsia-600/20 ring-1 ring-white/10 transition hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-violet-400/40"
-                        >
+                        <button className="inline-flex items-center justify-center rounded-2xl bg-gradient-to-r from-fuchsia-600 to-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-fuchsia-600/20 ring-1 ring-white/10 transition hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-violet-400/40">
                           Accept
                         </button>
                       </form>
@@ -487,7 +519,7 @@ export default async function DashboardRequestsPage({
                     </>
                   ) : null}
 
-                  {r.status === "accepted" || r.status === "declined" ? (
+                  {(r.status === "accepted" || r.status === "declined") ? (
                     <form action={setStatus}>
                       <input type="hidden" name="requestId" value={r.id} />
                       <input type="hidden" name="status" value="closed" />

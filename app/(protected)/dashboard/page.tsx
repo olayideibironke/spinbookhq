@@ -12,6 +12,10 @@ function isNonEmptyArray(v: unknown) {
   return Array.isArray(v) && v.length > 0;
 }
 
+function safeTrim(v: unknown) {
+  return typeof v === "string" ? v.trim() : "";
+}
+
 export default async function DashboardPage() {
   const user = await getUser();
   if (!user) redirect("/login");
@@ -59,6 +63,13 @@ export default async function DashboardPage() {
     typeof newRequestsCount === "number" && !Number.isNaN(newRequestsCount)
       ? newRequestsCount
       : 0;
+
+  // Build share link (server-safe)
+  const slug = safeTrim(p.slug);
+  const origin =
+    process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") || "http://localhost:3000";
+  const publicPath = slug ? `/dj/${slug}` : "";
+  const publicUrl = slug ? `${origin}${publicPath}` : "";
 
   const Card = ({ children }: { children: React.ReactNode }) => (
     <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6 shadow-[0_18px_60px_rgba(0,0,0,0.55)] backdrop-blur">
@@ -120,12 +131,16 @@ export default async function DashboardPage() {
                 {countErr ? (
                   <>
                     New requests:{" "}
-                    <span className="font-mono text-white/80">{countErr.message}</span>
+                    <span className="font-mono text-white/80">
+                      {countErr.message}
+                    </span>
                   </>
                 ) : (
                   <>
                     New requests:{" "}
-                    <span className="font-semibold text-white/85">{newCountSafe}</span>
+                    <span className="font-semibold text-white/85">
+                      {newCountSafe}
+                    </span>
                   </>
                 )}
               </p>
@@ -142,9 +157,69 @@ export default async function DashboardPage() {
           <div className="mt-6 rounded-3xl border border-white/10 bg-black/20 p-5">
             <p className="text-sm font-semibold text-white/85">Quick tips</p>
             <p className="mt-2 text-sm text-white/65">
-              Respond quickly to new requests — speed increases conversions.
-              When accepted, generate the deposit link to secure the date.
+              Respond quickly to new requests — speed increases conversions. When
+              accepted, generate the deposit link to secure the date.
             </p>
+          </div>
+
+          {/* Share helper (server-only, zero risk) */}
+          <div className="mt-4 rounded-3xl border border-white/10 bg-black/20 p-5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-white/85">
+                  Share your public booking link
+                </p>
+                <p className="mt-1 text-sm text-white/65">
+                  Send this to clients so they can view your profile and request
+                  bookings.
+                </p>
+
+                {slug ? (
+                  <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
+                    <div className="text-xs font-semibold text-white/60">
+                      Your link
+                    </div>
+                    <div className="mt-1 break-all font-mono text-xs text-white/80">
+                      {publicUrl}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white/65">
+                    Add a profile slug to generate your public link.
+                  </div>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                {slug ? (
+                  <>
+                    <Link
+                      href={publicPath}
+                      className="inline-flex items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm font-semibold text-white/85 shadow-[0_0_0_1px_rgba(255,255,255,0.03)] hover:bg-white/[0.06]"
+                    >
+                      View public page →
+                    </Link>
+
+                    <a
+                      href={publicUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center justify-center rounded-2xl bg-white/10 px-4 py-2.5 text-sm font-extrabold text-white hover:bg-white/15"
+                      title="Open in a new tab, then copy from the address bar"
+                    >
+                      Open & copy
+                    </a>
+                  </>
+                ) : (
+                  <Link
+                    href="/dashboard/profile"
+                    className="inline-flex items-center justify-center rounded-2xl bg-white/10 px-4 py-2.5 text-sm font-extrabold text-white hover:bg-white/15"
+                  >
+                    Add slug →
+                  </Link>
+                )}
+              </div>
+            </div>
           </div>
         </Card>
 
@@ -155,11 +230,16 @@ export default async function DashboardPage() {
               <h2 className="text-xl font-bold text-white">Your DJ Profile</h2>
               <p className="mt-2 text-sm text-white/65">
                 Stage name:{" "}
-                <span className="font-semibold text-white/85">{profile.stage_name}</span>
+                <span className="font-semibold text-white/85">
+                  {profile.stage_name}
+                </span>
               </p>
               {profile.city ? (
                 <p className="mt-1 text-sm text-white/65">
-                  City: <span className="font-semibold text-white/85">{profile.city}</span>
+                  City:{" "}
+                  <span className="font-semibold text-white/85">
+                    {profile.city}
+                  </span>
                 </p>
               ) : null}
             </div>
@@ -187,7 +267,9 @@ export default async function DashboardPage() {
           <div className="mt-6 rounded-3xl border border-white/10 bg-black/20 p-5">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <p className="text-sm font-semibold text-white/85">Profile completion</p>
+                <p className="text-sm font-semibold text-white/85">
+                  Profile completion
+                </p>
                 <p className="mt-1 text-sm text-white/65">
                   {completedCount}/{totalCount} complete •{" "}
                   <span className="font-semibold text-white/80">

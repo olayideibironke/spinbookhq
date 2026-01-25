@@ -14,7 +14,6 @@ type DjPublic = {
 
 function isValidEmail(email: string) {
   const e = email.trim();
-  // Simple, safe validator (not perfect, but prevents obvious junk)
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 }
 
@@ -51,9 +50,9 @@ export default async function DjBookingPage({
           <div className="mt-6">
             <Link
               className="inline-flex items-center rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-sm font-semibold text-white/80 hover:bg-white/[0.06]"
-              href="/djs/browse"
+              href="/djs"
             >
-              ← Back to Browse
+              ← Back to DJs
             </Link>
           </div>
         </div>
@@ -70,6 +69,7 @@ export default async function DjBookingPage({
     const location = String(formData.get("location") ?? "").trim();
     const message = String(formData.get("message") ?? "").trim();
 
+    // basic required fields
     if (!name || !email || !eventDate || !location) {
       redirect(`/dj/${slug}/book?ok=0`);
     }
@@ -80,7 +80,7 @@ export default async function DjBookingPage({
 
     const sb = await createClient();
 
-    // ✅ Re-fetch DJ inside server action (build-safe + avoids capturing `dj`)
+    // re-fetch DJ inside action (safe)
     const { data: djRow, error: djRowErr } = await sb
       .from("dj_profiles")
       .select("user_id, published")
@@ -142,22 +142,31 @@ export default async function DjBookingPage({
             <span className="font-extrabold text-white">{djName}</span>
             {djCity ? <span className="text-white/55"> • {djCity}</span> : null}
           </p>
+
+          <p className="mt-2 max-w-2xl text-sm text-white/60">
+            Fill this out once. If the DJ accepts, you may be asked to pay a
+            secure deposit to confirm.
+          </p>
         </div>
 
         {/* How it works */}
         <section className="mt-6 rounded-3xl border border-white/10 bg-white/[0.04] p-6 shadow-[0_18px_60px_rgba(0,0,0,0.55)] backdrop-blur">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <p className="text-base font-extrabold text-white">How this works</p>
+              <p className="text-base font-extrabold text-white">
+                What happens next
+              </p>
               <ul className="mt-3 space-y-1 text-sm text-white/65">
-                <li>• Send your request with event details.</li>
-                <li>• The DJ reviews and may accept/decline.</li>
-                <li>• If accepted, you may be asked to pay a deposit to confirm.</li>
+                <li>• You send the request with event details.</li>
+                <li>• DJ reviews and may accept or decline.</li>
+                <li>• If accepted, deposit may be required to confirm.</li>
               </ul>
             </div>
 
             <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-              <p className="text-sm font-extrabold text-white">Deposit (if required)</p>
+              <p className="text-sm font-extrabold text-white">
+                Deposit (if required)
+              </p>
               <p className="mt-1 text-sm text-white/65">
                 Deposits are collected securely via Stripe.
               </p>
@@ -199,7 +208,8 @@ export default async function DjBookingPage({
               Something went wrong
             </div>
             <p className="mt-2 text-sm text-red-100/80">
-              Please check your details and try again.
+              Please check the required fields (name, email, date, location) and
+              try again.
             </p>
           </div>
         )}
@@ -250,9 +260,12 @@ export default async function DjBookingPage({
                       type="date"
                       name="event_date"
                       required
-                      className="w-full rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white/90 placeholder:text-white/35 shadow-[0_0_0_1px_rgba(255,255,255,0.03)] outline-none focus:ring-2 focus:ring-violet-400/40"
+                      className="w-full rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white/90 shadow-[0_0_0_1px_rgba(255,255,255,0.03)] outline-none focus:ring-2 focus:ring-violet-400/40"
                     />
                   </div>
+                  <p className="mt-2 text-xs text-white/55">
+                    Pick the event date you want to lock in.
+                  </p>
                 </div>
 
                 <div>
@@ -267,6 +280,9 @@ export default async function DjBookingPage({
                       className="w-full rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white/90 placeholder:text-white/35 shadow-[0_0_0_1px_rgba(255,255,255,0.03)] outline-none focus:ring-2 focus:ring-violet-400/40"
                     />
                   </div>
+                  <p className="mt-2 text-xs text-white/55">
+                    Example: Washington, DC
+                  </p>
                 </div>
               </div>
 
@@ -277,10 +293,22 @@ export default async function DjBookingPage({
                 <div className="mt-2">
                   <textarea
                     name="message"
-                    rows={5}
-                    placeholder="Tell the DJ about your event (type, venue, start time, set length, equipment, etc.)"
+                    rows={6}
+                    placeholder="Event type, venue, start time, set length, music style, equipment needs, etc."
                     className="w-full rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white/90 placeholder:text-white/35 shadow-[0_0_0_1px_rgba(255,255,255,0.03)] outline-none focus:ring-2 focus:ring-violet-400/40"
                   />
+                </div>
+
+                <div className="mt-3 rounded-2xl border border-white/10 bg-black/20 p-4">
+                  <p className="text-xs font-extrabold text-white/80">
+                    Quick checklist (optional)
+                  </p>
+                  <ul className="mt-2 space-y-1 text-xs text-white/60">
+                    <li>• Start time + end time</li>
+                    <li>• Venue type (home, hall, club, outdoor)</li>
+                    <li>• Music vibe (Afrobeats, Hip-Hop, House, etc.)</li>
+                    <li>• Do you need speakers / mic?</li>
+                  </ul>
                 </div>
               </div>
 

@@ -1,4 +1,5 @@
-import { cookies } from "next/headers";
+// app/login/page.tsx
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createServerClient } from "@supabase/ssr";
 
@@ -58,8 +59,22 @@ export default async function LoginPage(props: {
       );
     }
 
+    // ✅ Use the current request origin, fallback to prod domain
+    const origin =
+      (await headers()).get("origin")?.trim() || "https://spinbookhq.com";
+
     if (actionMode === "signup") {
-      const { error } = await supabase.auth.signUp({ email, password });
+      const emailRedirectTo = `${origin}/auth/callback?next=${encodeURIComponent(
+        "/dashboard/profile"
+      )}`;
+
+      const { error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo,
+        },
+      });
 
       if (error) {
         redirect(`/login?mode=signup&msg=${encodeURIComponent(error.message)}`);
@@ -67,7 +82,7 @@ export default async function LoginPage(props: {
 
       redirect(
         `/login?mode=signin&msg=${encodeURIComponent(
-          "Signup successful. Check your email to confirm, then sign in."
+          "Signup successful. Check your email to confirm. After confirming, you’ll be sent to your profile setup."
         )}`
       );
     }
@@ -81,7 +96,8 @@ export default async function LoginPage(props: {
       redirect(`/login?mode=signin&msg=${encodeURIComponent(error.message)}`);
     }
 
-    redirect("/dashboard");
+    // ✅ After login, take DJs to onboarding/profile first
+    redirect("/dashboard/profile");
   }
 
   const inputClass =
@@ -91,7 +107,6 @@ export default async function LoginPage(props: {
 
   return (
     <main className="relative min-h-screen px-6 py-10">
-      {/* ambient glow */}
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 overflow-hidden"
@@ -112,7 +127,7 @@ export default async function LoginPage(props: {
                 SpinBook HQ
               </h1>
               <p className="mt-2 text-sm text-white/65">
-                {mode === "signin" ? "Sign in to continue" : "Create your account"}
+                {mode === "signin" ? "Sign in to continue" : "Create your DJ account"}
               </p>
             </div>
 
@@ -122,8 +137,6 @@ export default async function LoginPage(props: {
             </span>
           </div>
 
-          {/* ✅ Prevent hydration mismatch warnings caused by browser extensions
-              (password managers/autofill) injecting attributes into inputs/buttons. */}
           <form
             action={authAction}
             className="mt-7 space-y-4"

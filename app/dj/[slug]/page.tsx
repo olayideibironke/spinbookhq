@@ -18,7 +18,6 @@ function pickDisplayName(profile: any, slug: string) {
 }
 
 function isProfilePublished(profile: any) {
-  // Supports either column name: published OR is_published
   const v = profile?.published ?? profile?.is_published ?? false;
   return Boolean(v);
 }
@@ -67,18 +66,18 @@ async function fetchDjBySlug(slug: string) {
 async function canViewerSeeProfile(profile: any) {
   if (!profile) return { allowed: false as const, isOwner: false as const };
 
-  // Public if published
   if (isProfilePublished(profile)) {
     return { allowed: true as const, isOwner: false as const };
   }
 
-  // If not published: allow ONLY the owner (logged in user matches profile.user_id)
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const isOwner = Boolean(user?.id && profile?.user_id && user.id === profile.user_id);
+  const isOwner = Boolean(
+    user?.id && profile?.user_id && user.id === profile.user_id
+  );
 
   return { allowed: isOwner, isOwner };
 }
@@ -153,14 +152,14 @@ export default async function DjPublicProfilePage({
   const bio = pickBio(profile);
   const location = pickLocation(profile);
   const genres = pickGenres(profile);
-
   const published = isProfilePublished(profile);
 
   return (
     <main className="mx-auto max-w-6xl px-6 py-10">
       {/* Top hero card */}
       <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-7 shadow-[0_18px_60px_rgba(0,0,0,0.55)] backdrop-blur">
-        <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
+          {/* Left */}
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="truncate text-4xl font-extrabold tracking-tight text-white">
@@ -199,8 +198,22 @@ export default async function DjPublicProfilePage({
                 ))}
               </div>
             )}
+
+            {/* Trust chips (conversion) */}
+            <div className="mt-6 flex flex-wrap gap-2">
+              <span className="inline-flex items-center rounded-full border border-white/10 bg-black/20 px-3 py-1 text-xs font-semibold text-white/75">
+                Secure deposit
+              </span>
+              <span className="inline-flex items-center rounded-full border border-white/10 bg-black/20 px-3 py-1 text-xs font-semibold text-white/75">
+                Fast responses
+              </span>
+              <span className="inline-flex items-center rounded-full border border-white/10 bg-black/20 px-3 py-1 text-xs font-semibold text-white/75">
+                Booking-ready
+              </span>
+            </div>
           </div>
 
+          {/* Right: Actions */}
           <div className="flex flex-col gap-2 sm:items-end">
             <Link
               href={`/dj/${slug}/book`}
@@ -208,6 +221,22 @@ export default async function DjPublicProfilePage({
             >
               Request booking →
             </Link>
+
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <Link
+                href="/djs"
+                className="inline-flex items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-extrabold text-white/85 hover:bg-white/[0.06]"
+              >
+                ← Browse DJs
+              </Link>
+
+              <a
+                href="#about"
+                className="inline-flex items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-extrabold text-white/85 hover:bg-white/[0.06]"
+              >
+                About
+              </a>
+            </div>
 
             <p className="text-xs text-white/55">
               Typical response: within 24–48 hrs
@@ -221,7 +250,7 @@ export default async function DjPublicProfilePage({
           </div>
         </div>
 
-        {/* Subtle divider */}
+        {/* Divider */}
         <div className="mt-7 h-px w-full bg-gradient-to-r from-transparent via-white/15 to-transparent" />
 
         {/* Mini info row */}
@@ -241,14 +270,19 @@ export default async function DjPublicProfilePage({
           </div>
 
           <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-            <p className="text-xs font-semibold text-white/70">Professional</p>
-            <p className="mt-1 text-sm text-white/80">DJ profile</p>
+            <p className="text-xs font-semibold text-white/70">Confidence</p>
+            <p className="mt-1 text-sm text-white/80">
+              Clear profile + booking request
+            </p>
           </div>
         </div>
       </section>
 
       {/* About */}
-      <section className="mt-6 rounded-3xl border border-white/10 bg-white/[0.04] p-7 shadow-[0_18px_60px_rgba(0,0,0,0.55)] backdrop-blur">
+      <section
+        id="about"
+        className="mt-6 rounded-3xl border border-white/10 bg-white/[0.04] p-7 shadow-[0_18px_60px_rgba(0,0,0,0.55)] backdrop-blur"
+      >
         <h2 className="text-xl font-extrabold tracking-tight text-white">
           About
         </h2>
@@ -265,10 +299,10 @@ export default async function DjPublicProfilePage({
         )}
       </section>
 
-      {/* Footer */}
+      {/* Footer actions */}
       <div className="mt-8 flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-white/10 bg-white/[0.03] p-5 shadow-[0_0_0_1px_rgba(255,255,255,0.03)] backdrop-blur">
         <Link
-          href="/djs/browse"
+          href="/djs"
           className="inline-flex items-center rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-sm font-semibold text-white/80 hover:bg-white/[0.06]"
         >
           ← Back to DJs

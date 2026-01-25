@@ -1,3 +1,4 @@
+// app/dashboard/profile/page.tsx
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { cookies } from "next/headers";
@@ -97,13 +98,16 @@ export default async function DashboardProfilePage(props: {
 
   const profile = await getDjProfile(user.id);
 
+  const existingAvatarUrl = isNonEmptyString((profile as any)?.avatar_url)
+    ? String((profile as any).avatar_url)
+    : null;
+
   async function saveProfileAction(formData: FormData) {
     "use server";
 
     const cookieStore = await cookies();
     const supabase = buildSupabase(cookieStore);
 
-    // ✅ Re-check auth INSIDE the server action (Vercel build-safe)
     const {
       data: { user: authedUser },
       error: authedUserError,
@@ -115,8 +119,33 @@ export default async function DashboardProfilePage(props: {
     const slug = String(formData.get("slug") ?? "").trim();
     const city = String(formData.get("city") ?? "").trim();
     const bioRaw = String(formData.get("bio") ?? "");
-    const bio = bioRaw.trim().slice(0, 600); // keep it safe + clean
+    const bio = bioRaw.trim().slice(0, 600);
     const published = String(formData.get("published") ?? "") === "on";
+
+    const avatar = formData.get("avatar");
+
+    // Re-check profile on server
+    const { data: currentProfile } = await supabase
+      .from("dj_profiles")
+      .select("avatar_url")
+      .eq("user_id", authedUser.id)
+      .maybeSingle<{ avatar_url: string | null }>();
+
+    const hasAvatarAlready =
+      typeof currentProfile?.avatar_url === "string" &&
+      currentProfile.avatar_url.trim().length > 0;
+
+    const avatarFile =
+      avatar instanceof File && avatar.size > 0 ? avatar : null;
+
+    // ✅ Photo REQUIRED (either already uploaded, or newly provided now)
+    if (!hasAvatarAlready && !avatarFile) {
+      redirect(
+        `/dashboard/profile?msg=${encodeURIComponent(
+          "Profile photo is required. Please upload a clear headshot before continuing."
+        )}`
+      );
+    }
 
     if (!stage_name || !slug || !city) {
       redirect(
@@ -126,7 +155,6 @@ export default async function DashboardProfilePage(props: {
       );
     }
 
-    // Basic slug safety: lowercase, hyphens, numbers only
     const normalizedSlug = slug
       .toLowerCase()
       .replace(/[^a-z0-9-]/g, "-")
@@ -141,7 +169,6 @@ export default async function DashboardProfilePage(props: {
       );
     }
 
-    // Enforce uniqueness of slug (excluding current user)
     const { data: existing } = await supabase
       .from("dj_profiles")
       .select("user_id, slug")
@@ -156,6 +183,59 @@ export default async function DashboardProfilePage(props: {
       );
     }
 
+    // ✅ If trying to publish, you MUST have an avatar (either existing or uploaded now)
+    if (published && !hasAvatarAlready && !avatarFile) {
+      redirect(
+        `/dashboard/profile?msg=${encodeURIComponent(
+          "You must upload a profile photo before publishing."
+        )}`
+      );
+    }
+
+    let avatar_url: string | null = hasAvatarAlready
+      ? currentProfile?.avatar_url ?? null
+      : null;
+
+    if (avatarFile) {
+      const bucket = "avatars";
+
+      const ext =
+        avatarFile.type === "image/png"
+          ? "png"
+          : avatarFile.type === "image/webp"
+          ? "webp"
+          : "jpg";
+
+      const path = `${authedUser.id}/avatar.${ext}`;
+
+      const upload = await supabase.storage
+        .from(bucket)
+        .upload(path, avatarFile, {
+          upsert: true,
+          contentType: avatarFile.type || "image/jpeg",
+          cacheControl: "3600",
+        });
+
+      if (upload.error) {
+        redirect(
+          `/dashboard/profile?msg=${encodeURIComponent(
+            `Photo upload failed: ${upload.error.message}. (Check you have a Storage bucket named "avatars")`
+          )}`
+        );
+      }
+
+      const pub = supabase.storage.from(bucket).getPublicUrl(path);
+      avatar_url = pub.data.publicUrl ?? null;
+
+      if (!avatar_url) {
+        redirect(
+          `/dashboard/profile?msg=${encodeURIComponent(
+            'Photo uploaded but public URL could not be created. Check Storage bucket public access.'
+          )}`
+        );
+      }
+    }
+
     const payload = {
       user_id: authedUser.id,
       stage_name,
@@ -163,6 +243,7 @@ export default async function DashboardProfilePage(props: {
       city,
       bio: bio.length ? bio : null,
       published,
+      avatar_url: avatar_url,
     };
 
     const { error } = await supabase.from("dj_profiles").upsert(payload, {
@@ -200,7 +281,8 @@ export default async function DashboardProfilePage(props: {
     profile &&
     isNonEmptyString((profile as any).stage_name) &&
     isNonEmptyString((profile as any).slug) &&
-    isNonEmptyString((profile as any).city);
+    isNonEmptyString((profile as any).city) &&
+    isNonEmptyString((profile as any).avatar_url);
 
   const hasSlug =
     profile && isNonEmptyString((profile as any)?.slug)
@@ -211,7 +293,6 @@ export default async function DashboardProfilePage(props: {
 
   return (
     <section className="w-full">
-      {/* Page header */}
       <div className="flex flex-col gap-2">
         <p className="text-xs font-semibold tracking-[0.22em] text-white/60">
           DASHBOARD
@@ -232,11 +313,10 @@ export default async function DashboardProfilePage(props: {
       ) : null}
 
       <div className="mt-8 grid gap-4 lg:grid-cols-3">
-        {/* Left: editor */}
         <div className="lg:col-span-2">
           <Card
             title={profile ? "Edit your DJ profile" : "Create your DJ profile"}
-            subtitle="This is what shows on the public marketplace. Keep it clean and professional."
+            subtitle="Profile photo is required. This is what shows on the public marketplace."
             right={
               isReady ? (
                 <span className="inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-500/10 px-3 py-1 text-xs font-extrabold text-emerald-200">
@@ -252,6 +332,41 @@ export default async function DashboardProfilePage(props: {
             }
           >
             <form action={saveProfileAction} className="space-y-4">
+              <Field
+                label="Profile photo (required)"
+                hint="Clear headshot. JPG/PNG/WebP."
+              >
+                <div className="flex items-center gap-4">
+                  <div className="h-16 w-16 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.06]">
+                    {existingAvatarUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={existingAvatarUrl}
+                        alt="DJ avatar"
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center text-xs text-white/45">
+                        No photo
+                      </div>
+                    )}
+                  </div>
+
+                  <input
+                    className={inputClass}
+                    type="file"
+                    name="avatar"
+                    accept="image/png,image/jpeg,image/webp"
+                    required={!existingAvatarUrl}
+                  />
+                </div>
+                <p className="mt-2 text-xs text-white/45">
+                  {existingAvatarUrl
+                    ? "You already have a photo. Upload a new one to replace it."
+                    : "You must upload a profile photo to continue."}
+                </p>
+              </Field>
+
               <Field label="Stage name" hint="Example: DJ Nova">
                 <input
                   className={inputClass}
@@ -304,8 +419,15 @@ export default async function DashboardProfilePage(props: {
                     <p className="mt-1 text-sm text-white/65">
                       When published, you’ll appear on the Browse DJs page.
                     </p>
+                    {!existingAvatarUrl ? (
+                      <p className="mt-2 text-xs font-semibold text-amber-200/90">
+                        You can check Publish now — just make sure you upload a photo before saving.
+                      </p>
+                    ) : null}
                   </div>
 
+                  {/* ✅ DO NOT disable the checkbox.
+                      Server-side rules will still block publish if no photo exists/uploaded. */}
                   <input
                     type="checkbox"
                     name="published"
@@ -325,12 +447,8 @@ export default async function DashboardProfilePage(props: {
           </Card>
         </div>
 
-        {/* Right: quick actions */}
         <div className="lg:col-span-1">
-          <Card
-            title="Quick actions"
-            subtitle="Use these to verify your public listing."
-          >
+          <Card title="Quick actions" subtitle="Use these to verify your listing.">
             <div className="grid gap-3">
               <Link
                 href="/djs"
@@ -357,6 +475,7 @@ export default async function DashboardProfilePage(props: {
               <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-white/70">
                 Minimal setup required:
                 <ul className="mt-2 space-y-1">
+                  <li>• Profile photo (required)</li>
                   <li>• Stage name</li>
                   <li>• Slug</li>
                   <li>• City</li>

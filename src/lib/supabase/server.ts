@@ -1,3 +1,4 @@
+// src/lib/supabase/server.ts
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 
@@ -21,9 +22,8 @@ export async function createClient() {
           }));
         },
         // Do NOT attempt to set cookies in Server Components.
-        // If we try + swallow errors, auth appears to succeed but session never sticks → redirect loops.
         setAll() {
-          // Intentionally noop. Cookie writes must happen in a Route Handler.
+          // Intentionally noop. Cookie writes must happen in a Route Handler / Server Action.
         },
       },
     }
