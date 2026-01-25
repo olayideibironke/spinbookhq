@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { stripe } from "@/lib/stripe";
+import { getStripe } from "@/lib/stripe";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +39,10 @@ export async function POST(req: Request) {
     }
 
     if (!booking) {
-      return NextResponse.json({ error: "Booking request not found" }, { status: 404 });
+      return NextResponse.json(
+        { error: "Booking request not found" },
+        { status: 404 }
+      );
     }
 
     // If already paid, no need to create another checkout
@@ -52,10 +55,16 @@ export async function POST(req: Request) {
 
     // If a checkout link already exists, reuse it
     if (booking.checkout_url) {
-      return NextResponse.json({ url: booking.checkout_url, reused: true }, { status: 200 });
+      return NextResponse.json(
+        { url: booking.checkout_url, reused: true },
+        { status: 200 }
+      );
     }
 
     const origin = req.headers.get("origin") ?? "http://localhost:3000";
+
+    // ✅ Lazy init Stripe ONLY inside the handler
+    const stripe = getStripe();
 
     // Create Stripe Checkout Session ($50 deposit)
     const session = await stripe.checkout.sessions.create({
@@ -84,7 +93,10 @@ export async function POST(req: Request) {
     const checkoutUrl = session.url ?? null;
 
     if (!checkoutUrl) {
-      return NextResponse.json({ error: "Stripe did not return a checkout URL" }, { status: 500 });
+      return NextResponse.json(
+        { error: "Stripe did not return a checkout URL" },
+        { status: 500 }
+      );
     }
 
     // Save checkout info
