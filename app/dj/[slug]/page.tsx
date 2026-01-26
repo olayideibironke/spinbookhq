@@ -44,6 +44,26 @@ function pickGenres(profile: any) {
   return genres;
 }
 
+function pickStartingPrice(profile: any) {
+  const raw = profile?.starting_price ?? profile?.price_from ?? profile?.price;
+  const n = typeof raw === "string" ? Number(raw.replace(/[^\d]/g, "")) : Number(raw);
+  if (!Number.isFinite(n)) return null;
+  const int = Math.floor(n);
+  return int > 0 ? int : null;
+}
+
+function formatUsd(amount: number) {
+  try {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      maximumFractionDigits: 0,
+    }).format(amount);
+  } catch {
+    return `$${amount}`;
+  }
+}
+
 function shortText(input: string, max = 160) {
   const s = input.replace(/\s+/g, " ").trim();
   if (s.length <= max) return s;
@@ -154,10 +174,22 @@ export default async function DjPublicProfilePage({
   const genres = pickGenres(profile);
   const published = isProfilePublished(profile);
 
+  const startingPrice = pickStartingPrice(profile);
+  const priceLabel = startingPrice ? `From ${formatUsd(startingPrice)}` : null;
+
   return (
     <main className="mx-auto max-w-6xl px-6 py-10">
       {/* Top hero card */}
-      <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-7 shadow-[0_18px_60px_rgba(0,0,0,0.55)] backdrop-blur">
+      <section className="relative rounded-3xl border border-white/10 bg-white/[0.04] p-7 shadow-[0_18px_60px_rgba(0,0,0,0.55)] backdrop-blur">
+        {/* ✅ Top-right price pill */}
+        {priceLabel ? (
+          <div className="absolute right-6 top-6">
+            <span className="inline-flex items-center rounded-full border border-white/10 bg-black/30 px-3 py-1 text-xs font-extrabold text-white/85 shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur">
+              {priceLabel}
+            </span>
+          </div>
+        ) : null}
+
         <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
           {/* Left */}
           <div className="min-w-0">
