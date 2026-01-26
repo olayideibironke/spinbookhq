@@ -9,6 +9,7 @@ type DjProfile = {
   stage_name: string | null;
   city: string | null;
   avatar_url: string | null;
+  starting_price: number | null;
 };
 
 function initials(name: string) {
@@ -18,8 +19,30 @@ function initials(name: string) {
   return (a + b).toUpperCase();
 }
 
+function toValidPrice(v: unknown): number | null {
+  const n =
+    typeof v === "number"
+      ? v
+      : typeof v === "string"
+      ? Number(v.replace(/[^\d]/g, ""))
+      : Number(v);
+
+  if (!Number.isFinite(n)) return null;
+  const int = Math.floor(n);
+  return int > 0 ? int : null;
+}
+
 function formatFromPrice(value: number) {
-  return `From $${value}`;
+  try {
+    const formatted = new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      maximumFractionDigits: 0,
+    }).format(value);
+    return `From ${formatted}`;
+  } catch {
+    return `From $${value}`;
+  }
 }
 
 /**
@@ -64,7 +87,7 @@ export default async function BrowseDjsPage() {
 
   const { data: djs, error } = await supabase
     .from("dj_profiles")
-    .select("user_id, slug, stage_name, city, avatar_url")
+    .select("user_id, slug, stage_name, city, avatar_url, starting_price")
     .eq("published", true)
     .not("slug", "is", null)
     .order("stage_name", { ascending: true });
@@ -90,16 +113,17 @@ export default async function BrowseDjsPage() {
     const city = (dj.city ?? "").trim();
     const slug = (dj.slug ?? "").trim();
 
-    const price = idx === 0 ? 400 : idx === 1 ? 350 : 300;
     const fallback =
       idx === 0 ? "/dj-1.jpg" : idx === 1 ? "/dj-2.jpg" : "/dj-3.jpg";
+
+    const startingPrice = toValidPrice((dj as any).starting_price);
 
     return {
       ...dj,
       name,
       city,
       slug,
-      price,
+      startingPrice,
       imageSrc: (dj.avatar_url && dj.avatar_url.trim()) || fallback,
     };
   });
@@ -129,9 +153,7 @@ export default async function BrowseDjsPage() {
 
         {/* Featured */}
         <section className="mt-8 rounded-3xl border border-white/10 bg-white/[0.03] p-6 shadow-[0_18px_60px_rgba(0,0,0,0.55)] backdrop-blur sm:p-8">
-          <h2 className="text-3xl font-extrabold text-white">
-            Featured DJs
-          </h2>
+          <h2 className="text-3xl font-extrabold text-white">Featured DJs</h2>
           <p className="mt-2 text-sm text-white/65">
             Popular DJs with active profiles and booking-ready setups.
           </p>
@@ -148,6 +170,15 @@ export default async function BrowseDjsPage() {
                     alt={`${featured[0].name} featured`}
                   />
                 </div>
+
+                {/* ✅ Top-right price pill */}
+                {featured[0].startingPrice ? (
+                  <div className="absolute right-5 top-5 z-20">
+                    <span className="inline-flex items-center rounded-full border border-white/10 bg-black/30 px-3 py-1 text-xs font-extrabold text-white/85 shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur">
+                      {formatFromPrice(featured[0].startingPrice)}
+                    </span>
+                  </div>
+                ) : null}
 
                 <div className="absolute inset-x-0 bottom-0 z-20 p-6">
                   <div className="flex items-end justify-between gap-4">
@@ -184,6 +215,15 @@ export default async function BrowseDjsPage() {
                         />
                       </div>
 
+                      {/* ✅ Top-right price pill */}
+                      {dj.startingPrice ? (
+                        <div className="absolute right-4 top-4 z-20">
+                          <span className="inline-flex items-center rounded-full border border-white/10 bg-black/30 px-3 py-1 text-xs font-extrabold text-white/85 shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur">
+                            {formatFromPrice(dj.startingPrice)}
+                          </span>
+                        </div>
+                      ) : null}
+
                       <div className="absolute inset-x-0 bottom-0 z-20 p-5">
                         <div className="flex items-end justify-between gap-4">
                           <div>
@@ -219,12 +259,22 @@ export default async function BrowseDjsPage() {
               const name = (dj.stage_name ?? "DJ").trim() || "DJ";
               const city = (dj.city ?? "").trim();
               const slug = (dj.slug ?? "").trim();
+              const startingPrice = toValidPrice((dj as any).starting_price);
 
               return (
                 <li
                   key={dj.user_id}
-                  className="group rounded-3xl border border-white/10 bg-white/[0.04] p-5 shadow-[0_18px_60px_rgba(0,0,0,0.55)] backdrop-blur transition hover:-translate-y-[1px]"
+                  className="group relative rounded-3xl border border-white/10 bg-white/[0.04] p-5 shadow-[0_18px_60px_rgba(0,0,0,0.55)] backdrop-blur transition hover:-translate-y-[1px]"
                 >
+                  {/* ✅ Top-right price pill */}
+                  {startingPrice ? (
+                    <div className="absolute right-4 top-4">
+                      <span className="inline-flex items-center rounded-full border border-white/10 bg-black/25 px-3 py-1 text-xs font-extrabold text-white/85 backdrop-blur">
+                        {formatFromPrice(startingPrice)}
+                      </span>
+                    </div>
+                  ) : null}
+
                   <div className="flex items-start gap-4">
                     {dj.avatar_url ? (
                       // eslint-disable-next-line @next/next/no-img-element

@@ -1,4 +1,4 @@
-// app/dashboard/profile/page.tsx
+// FILE: app/dashboard/profile/page.tsx
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { cookies } from "next/headers";
@@ -33,6 +33,23 @@ function buildSupabase(cookieStore: Awaited<ReturnType<typeof cookies>>) {
 
 function isNonEmptyString(v: unknown) {
   return typeof v === "string" && v.trim().length > 0;
+}
+
+function toPositiveIntOrNull(v: string) {
+  const trimmed = v.trim();
+  if (!trimmed) return null;
+
+  // allow "$450" or "450" (strip non-digits safely)
+  const digits = trimmed.replace(/[^\d]/g, "");
+  if (!digits) return null;
+
+  const n = Number(digits);
+  if (!Number.isFinite(n)) return null;
+
+  const int = Math.floor(n);
+  if (int <= 0) return null;
+
+  return int;
 }
 
 function Card({
@@ -122,6 +139,10 @@ export default async function DashboardProfilePage(props: {
     const bio = bioRaw.trim().slice(0, 600);
     const published = String(formData.get("published") ?? "") === "on";
 
+    // ✅ NEW: Starting price
+    const startingPriceRaw = String(formData.get("starting_price") ?? "");
+    const starting_price = toPositiveIntOrNull(startingPriceRaw);
+
     const avatar = formData.get("avatar");
 
     // Re-check profile on server
@@ -192,6 +213,15 @@ export default async function DashboardProfilePage(props: {
       );
     }
 
+    // ✅ If trying to publish, Starting Price is REQUIRED
+    if (published && !starting_price) {
+      redirect(
+        `/dashboard/profile?msg=${encodeURIComponent(
+          "Starting price is required before publishing. Example: 450 (shown as “From $450”)."
+        )}`
+      );
+    }
+
     let avatar_url: string | null = hasAvatarAlready
       ? currentProfile?.avatar_url ?? null
       : null;
@@ -208,13 +238,11 @@ export default async function DashboardProfilePage(props: {
 
       const path = `${authedUser.id}/avatar.${ext}`;
 
-      const upload = await supabase.storage
-        .from(bucket)
-        .upload(path, avatarFile, {
-          upsert: true,
-          contentType: avatarFile.type || "image/jpeg",
-          cacheControl: "3600",
-        });
+      const upload = await supabase.storage.from(bucket).upload(path, avatarFile, {
+        upsert: true,
+        contentType: avatarFile.type || "image/jpeg",
+        cacheControl: "3600",
+      });
 
       if (upload.error) {
         redirect(
@@ -244,6 +272,7 @@ export default async function DashboardProfilePage(props: {
       bio: bio.length ? bio : null,
       published,
       avatar_url: avatar_url,
+      starting_price: starting_price, // ✅ NEW
     };
 
     const { error } = await supabase.from("dj_profiles").upsert(payload, {
@@ -277,12 +306,20 @@ export default async function DashboardProfilePage(props: {
     "placeholder:text-white/45 shadow-sm outline-none transition " +
     "focus:border-white/20 focus:bg-white/[0.08] focus:ring-2 focus:ring-white/15";
 
+  const startingPriceExisting =
+    (profile as any)?.starting_price != null &&
+    String((profile as any).starting_price).trim() !== ""
+      ? String((profile as any).starting_price)
+      : "";
+
   const isReady =
     profile &&
     isNonEmptyString((profile as any).stage_name) &&
     isNonEmptyString((profile as any).slug) &&
     isNonEmptyString((profile as any).city) &&
-    isNonEmptyString((profile as any).avatar_url);
+    isNonEmptyString((profile as any).avatar_url) &&
+    ((profile as any)?.starting_price != null &&
+      String((profile as any).starting_price).trim() !== "");
 
   const hasSlug =
     profile && isNonEmptyString((profile as any)?.slug)
@@ -316,7 +353,7 @@ export default async function DashboardProfilePage(props: {
         <div className="lg:col-span-2">
           <Card
             title={profile ? "Edit your DJ profile" : "Create your DJ profile"}
-            subtitle="Profile photo is required. This is what shows on the public marketplace."
+            subtitle="Profile photo is required. Starting price is required to publish."
             right={
               isReady ? (
                 <span className="inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-500/10 px-3 py-1 text-xs font-extrabold text-emerald-200">
@@ -401,6 +438,25 @@ export default async function DashboardProfilePage(props: {
                 />
               </Field>
 
+              {/* ✅ NEW: Starting price */}
+              <Field label="Starting price (USD)" hint='Shows as “From $450”'>
+                <div className="relative">
+                  <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm font-extrabold text-white/55">
+                    $
+                  </span>
+                  <input
+                    className={`${inputClass} pl-9`}
+                    name="starting_price"
+                    inputMode="numeric"
+                    placeholder="450"
+                    defaultValue={startingPriceExisting}
+                  />
+                </div>
+                <p className="mt-2 text-xs text-white/45">
+                  Clients see this on your profile and in Browse DJs.
+                </p>
+              </Field>
+
               <Field label="Bio" hint="Short intro. 600 chars max.">
                 <textarea
                   className={textareaClass}
@@ -419,15 +475,22 @@ export default async function DashboardProfilePage(props: {
                     <p className="mt-1 text-sm text-white/65">
                       When published, you’ll appear on the Browse DJs page.
                     </p>
+
                     {!existingAvatarUrl ? (
                       <p className="mt-2 text-xs font-semibold text-amber-200/90">
-                        You can check Publish now — just make sure you upload a photo before saving.
+                        Publish is allowed — just upload a photo before saving.
+                      </p>
+                    ) : null}
+
+                    {!startingPriceExisting ? (
+                      <p className="mt-2 text-xs font-semibold text-amber-200/90">
+                        Starting price is required to publish.
                       </p>
                     ) : null}
                   </div>
 
                   {/* ✅ DO NOT disable the checkbox.
-                      Server-side rules will still block publish if no photo exists/uploaded. */}
+                      Server-side rules will block publish if requirements aren't met. */}
                   <input
                     type="checkbox"
                     name="published"
@@ -479,6 +542,7 @@ export default async function DashboardProfilePage(props: {
                   <li>• Stage name</li>
                   <li>• Slug</li>
                   <li>• City</li>
+                  <li>• Starting price (required to publish)</li>
                   <li>• Publish ON</li>
                 </ul>
                 <p className="mt-3 text-xs text-white/45">
