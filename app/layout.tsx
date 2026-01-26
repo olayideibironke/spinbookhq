@@ -16,7 +16,8 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const phone = "19292161855";
+  // ✅ UPDATED WHATSAPP NUMBER
+  const phone = "12027659663";
 
   const defaultMessage = encodeURIComponent(
     "Hi SpinBook HQ, I need help with a booking."
@@ -36,7 +37,8 @@ export default async function RootLayout({
         {/* Footer */}
         <footer className="border-t border-white/10 bg-black/40 backdrop-blur">
           <div className="mx-auto max-w-6xl px-6 py-4 text-center text-xs text-white/55">
-            © 2026 SpinBook HQ | Washington, D.C, U.S.A. <br className="sm:hidden" />
+            © 2026 SpinBook HQ | Washington, D.C, U.S.A.
+            <br className="sm:hidden" />
             <span className="hidden sm:inline"> • </span>
             All Rights Reserved.
           </div>
