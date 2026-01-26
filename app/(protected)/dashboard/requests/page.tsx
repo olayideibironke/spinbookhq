@@ -1,3 +1,4 @@
+// FILE: app/(protected)/dashboard/requests/page.tsx
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -18,6 +19,13 @@ type BookingRequest = {
   event_location: string;
   message: string | null;
   status: BookingStatus;
+
+  // ✅ NEW FIELDS (DB already updated)
+  quoted_total: number | null;
+  quoted_at: string | null;
+  platform_fee_total: number | null;
+  platform_fee_paid: number | null;
+  fee_status: string | null;
 
   checkout_url: string | null;
   stripe_checkout_session_id: string | null;
@@ -70,6 +78,28 @@ function depositPillClasses(kind: "paid" | "awaiting" | "blocked" | "none") {
   }
 }
 
+function toPositiveIntOrNull(raw: string) {
+  const trimmed = (raw ?? "").trim();
+  if (!trimmed) return null;
+  const digits = trimmed.replace(/[^\d]/g, "");
+  if (!digits) return null;
+  const n = Number(digits);
+  if (!Number.isFinite(n)) return null;
+  const int = Math.floor(n);
+  if (int <= 0) return null;
+  return int;
+}
+
+function calcPlatformFeeTotal(quotedTotal: number) {
+  // 10% of the declared final price
+  return Math.ceil(quotedTotal * 0.1);
+}
+
+function calcFeeDue(platformFeeTotal: number, platformFeePaid: number) {
+  const due = platformFeeTotal - platformFeePaid;
+  return due > 0 ? due : 0;
+}
+
 export default async function DashboardRequestsPage({
   searchParams,
 }: {
@@ -93,13 +123,61 @@ export default async function DashboardRequestsPage({
     redirect("/login");
   }
 
+  // ✅ Replace old "Accept" with "Accept & Quote Final Price"
+  async function acceptAndQuote(formData: FormData) {
+    "use server";
+
+    const requestId = String(formData.get("requestId") ?? "").trim();
+    const quotedRaw = String(formData.get("quoted_total") ?? "");
+
+    if (!requestId) return;
+
+    const quoted_total = toPositiveIntOrNull(quotedRaw);
+
+    // ✅ Minimum starting price rule
+    if (!quoted_total || quoted_total < 450) return;
+
+    // ✅ Platform fee math: 10% total; deposit already paid to SpinBook = $80
+    const platform_fee_total = calcPlatformFeeTotal(quoted_total);
+    const platform_fee_paid = 80; // from the fixed $200 deposit split ($80 SpinBook)
+    const fee_status = platform_fee_total > platform_fee_paid ? "due" : "ok";
+
+    const supabase = await createClient();
+
+    const {
+      data: { user: authedUser },
+      error: authedUserError,
+    } = await supabase.auth.getUser();
+
+    if (authedUserError || !authedUser) redirect("/login");
+
+    // Only accept if it's still "new" and belongs to this DJ
+    await supabase
+      .from("booking_requests")
+      .update({
+        status: "accepted",
+        quoted_total,
+        quoted_at: new Date().toISOString(),
+        platform_fee_total,
+        platform_fee_paid,
+        fee_status,
+      })
+      .eq("id", requestId)
+      .eq("dj_user_id", authedUser.id)
+      .eq("status", "new");
+
+    revalidatePath("/dashboard/requests");
+    revalidatePath(`/dashboard/requests/${requestId}`);
+    revalidatePath("/dashboard");
+  }
+
   async function setStatus(formData: FormData) {
     "use server";
 
     const requestId = String(formData.get("requestId") ?? "").trim();
     const status = String(formData.get("status") ?? "").trim();
 
-    if (!requestId || !["accepted", "declined", "closed"].includes(status)) return;
+    if (!requestId || !["declined", "closed"].includes(status)) return;
 
     const supabase = await createClient();
 
@@ -139,7 +217,7 @@ export default async function DashboardRequestsPage({
     const { data: req, error: reqErr } = await supabase
       .from("booking_requests")
       .select(
-        "id, dj_user_id, requester_email, requester_name, status, checkout_url, stripe_checkout_session_id, deposit_paid"
+        "id, dj_user_id, requester_email, requester_name, status, checkout_url, stripe_checkout_session_id, deposit_paid, quoted_total"
       )
       .eq("id", requestId)
       .single();
@@ -147,7 +225,10 @@ export default async function DashboardRequestsPage({
     if (reqErr || !req) return;
     if (req.dj_user_id !== authedUser.id) return;
 
+    // ✅ Deposit only after accept + quote
     if (req.status !== "accepted") return;
+    if (!req.quoted_total || Number(req.quoted_total) < 450) return;
+
     if (req.deposit_paid) return;
 
     if (req.checkout_url) {
@@ -169,6 +250,9 @@ export default async function DashboardRequestsPage({
       process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ||
       "http://localhost:3000";
 
+    // ✅ FIXED deposit = $200
+    const DEPOSIT_AMOUNT_CENTS = 20000;
+
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       customer_email: req.requester_email,
@@ -178,9 +262,9 @@ export default async function DashboardRequestsPage({
             currency: "usd",
             product_data: {
               name: "DJ Booking Deposit",
-              description: `Deposit for booking request ${requestId}`,
+              description: `Non-refundable booking deposit for request ${requestId}. Final price: $${req.quoted_total}.`,
             },
-            unit_amount: 5000,
+            unit_amount: DEPOSIT_AMOUNT_CENTS,
           },
           quantity: 1,
         },
@@ -190,6 +274,7 @@ export default async function DashboardRequestsPage({
       metadata: {
         booking_request_id: requestId,
         dj_slug: djSlug || "",
+        quoted_total: String(req.quoted_total ?? ""),
       },
     });
 
@@ -220,7 +305,7 @@ export default async function DashboardRequestsPage({
   let query = supabase
     .from("booking_requests")
     .select(
-      "id, created_at, requester_name, requester_email, event_date, event_location, message, status, checkout_url, stripe_checkout_session_id, deposit_paid, deposit_paid_at"
+      "id, created_at, requester_name, requester_email, event_date, event_location, message, status, quoted_total, quoted_at, platform_fee_total, platform_fee_paid, fee_status, checkout_url, stripe_checkout_session_id, deposit_paid, deposit_paid_at"
     )
     .eq("dj_user_id", user.id)
     .order("created_at", { ascending: false });
@@ -237,7 +322,8 @@ export default async function DashboardRequestsPage({
         <div className="mx-auto w-full max-w-6xl">
           <h1 className="text-3xl font-bold text-white">Booking Requests</h1>
           <p className="mt-4 text-sm text-white/70">
-            Error: <span className="font-mono text-white/85">{error.message}</span>
+            Error:{" "}
+            <span className="font-mono text-white/85">{error.message}</span>
           </p>
         </div>
       </main>
@@ -247,14 +333,24 @@ export default async function DashboardRequestsPage({
   const filterItems: Array<{ key: FilterKey; label: string; href: string }> = [
     { key: "all", label: "All", href: "/dashboard/requests" },
     { key: "new", label: "New", href: "/dashboard/requests?status=new" },
-    { key: "accepted", label: "Accepted", href: "/dashboard/requests?status=accepted" },
-    { key: "declined", label: "Declined", href: "/dashboard/requests?status=declined" },
+    {
+      key: "accepted",
+      label: "Accepted",
+      href: "/dashboard/requests?status=accepted",
+    },
+    {
+      key: "declined",
+      label: "Declined",
+      href: "/dashboard/requests?status=declined",
+    },
     { key: "closed", label: "Closed", href: "/dashboard/requests?status=closed" },
   ];
 
   const total = requests?.length ?? 0;
   const paidCount = (requests ?? []).filter((r) => r.deposit_paid).length;
-  const awaitingCount = (requests ?? []).filter((r) => !r.deposit_paid && !!r.checkout_url).length;
+  const awaitingCount = (requests ?? []).filter(
+    (r) => !r.deposit_paid && !!r.checkout_url
+  ).length;
   const newCount = (requests ?? []).filter((r) => r.status === "new").length;
 
   return (
@@ -345,7 +441,8 @@ export default async function DashboardRequestsPage({
                   </>
                 ) : (
                   <span className="text-xs text-white/55">
-                    Tip: set your profile slug and publish to start receiving requests.
+                    Tip: set your profile slug and publish to start receiving
+                    requests.
                   </span>
                 )}
               </div>
@@ -374,6 +471,14 @@ export default async function DashboardRequestsPage({
 
             const isNew = r.status === "new";
 
+            const quoted = r.quoted_total ?? null;
+            const platformFeeTotal = r.platform_fee_total ?? null;
+            const platformFeePaid = r.platform_fee_paid ?? null;
+            const feeDue =
+              quoted != null && platformFeeTotal != null && platformFeePaid != null
+                ? calcFeeDue(platformFeeTotal, platformFeePaid)
+                : null;
+
             return (
               <li
                 key={r.id}
@@ -399,7 +504,9 @@ export default async function DashboardRequestsPage({
                         </span>
                       ) : null}
                     </div>
-                    <p className="truncate text-sm text-white/65">{r.requester_email}</p>
+                    <p className="truncate text-sm text-white/65">
+                      {r.requester_email}
+                    </p>
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">
@@ -440,6 +547,39 @@ export default async function DashboardRequestsPage({
                   </div>
                 </div>
 
+                {/* ✅ Quote summary (after accept) */}
+                {quoted != null ? (
+                  <div className="mt-5 rounded-3xl border border-white/10 bg-black/20 p-5 text-sm text-white/80">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-semibold tracking-[0.18em] text-white/55">
+                          DECLARED FINAL PRICE
+                        </p>
+                        <p className="mt-1 text-lg font-extrabold text-white">
+                          ${quoted}
+                        </p>
+                        <p className="mt-1 text-xs text-white/55">
+                          Minimum allowed is $450. This amount is used to compute SpinBook’s 10%.
+                        </p>
+                      </div>
+
+                      {feeDue != null && feeDue > 0 ? (
+                        <div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 px-4 py-3">
+                          <p className="text-xs font-semibold text-amber-200/90">
+                            Platform fee due
+                          </p>
+                          <p className="mt-1 text-sm font-extrabold text-amber-200">
+                            ${feeDue}
+                          </p>
+                          <p className="mt-1 text-xs text-amber-200/75">
+                            Deposit covers $80. Remaining fee is owed by DJ.
+                          </p>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
+
                 {/* Deposit card */}
                 <div className="mt-6 rounded-3xl border border-white/10 bg-neutral-950/30 p-5 shadow-[0_0_0_1px_rgba(255,255,255,0.03)]">
                   <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -448,7 +588,9 @@ export default async function DashboardRequestsPage({
                         <p className="text-sm font-semibold text-white">Deposit</p>
                         <span className={depositPillClasses(depositKind)}>
                           {depositLabel}
-                          {r.deposit_paid ? <span className="opacity-90">✅</span> : null}
+                          {r.deposit_paid ? (
+                            <span className="opacity-90">✅</span>
+                          ) : null}
                         </span>
                       </div>
 
@@ -466,10 +608,18 @@ export default async function DashboardRequestsPage({
                         ) : r.checkout_url ? (
                           <>Link is ready. Share it with the client to complete payment.</>
                         ) : r.status === "accepted" ? (
-                          <>Generate a deposit link to secure this booking.</>
+                          quoted != null ? (
+                            <>Generate the $200 deposit link to secure this booking.</>
+                          ) : (
+                            <>Declare a final price first (min $450) to unlock deposit actions.</>
+                          )
                         ) : (
                           <>Accept this request first to unlock deposit actions.</>
                         )}
+                      </p>
+
+                      <p className="mt-2 text-xs text-white/45">
+                        Rule: The $200 deposit is non-refundable if the client fails to pay the full balance 7 days before the event.
                       </p>
                     </div>
 
@@ -483,13 +633,11 @@ export default async function DashboardRequestsPage({
                         >
                           Open deposit checkout
                         </a>
-                      ) : r.status === "accepted" ? (
+                      ) : r.status === "accepted" && quoted != null ? (
                         <form action={generateDepositLink}>
                           <input type="hidden" name="requestId" value={r.id} />
-                          <button
-                            className="inline-flex items-center justify-center rounded-2xl bg-gradient-to-r from-fuchsia-600 to-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-fuchsia-600/20 ring-1 ring-white/10 transition hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-violet-400/40"
-                          >
-                            Generate deposit link
+                          <button className="inline-flex items-center justify-center rounded-2xl bg-gradient-to-r from-fuchsia-600 to-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-fuchsia-600/20 ring-1 ring-white/10 transition hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-violet-400/40">
+                            Generate $200 deposit link
                           </button>
                         </form>
                       ) : null}
@@ -501,18 +649,29 @@ export default async function DashboardRequestsPage({
                 <div className="mt-6 flex flex-wrap gap-2">
                   {r.status === "new" ? (
                     <>
-                      <form action={setStatus}>
+                      {/* ✅ Accept & Quote Final Price */}
+                      <form
+                        action={acceptAndQuote}
+                        className="flex flex-wrap items-center gap-2"
+                      >
                         <input type="hidden" name="requestId" value={r.id} />
-                        <input type="hidden" name="status" value="accepted" />
-                        <button className="inline-flex items-center justify-center rounded-2xl bg-gradient-to-r from-fuchsia-600 to-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-fuchsia-600/20 ring-1 ring-white/10 transition hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-violet-400/40">
-                          Accept
+                        <input
+                          type="text"
+                          name="quoted_total"
+                          inputMode="numeric"
+                          placeholder="Final price (min $450)"
+                          className="h-11 w-44 rounded-2xl border border-white/10 bg-white/[0.06] px-4 text-sm font-semibold text-white placeholder:text-white/45 outline-none focus:border-white/20 focus:bg-white/[0.08] focus:ring-2 focus:ring-white/15"
+                          required
+                        />
+                        <button className="inline-flex h-11 items-center justify-center rounded-2xl bg-gradient-to-r from-fuchsia-600 to-violet-600 px-4 text-sm font-semibold text-white shadow-lg shadow-fuchsia-600/20 ring-1 ring-white/10 transition hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-violet-400/40">
+                          Accept & Quote
                         </button>
                       </form>
 
                       <form action={setStatus}>
                         <input type="hidden" name="requestId" value={r.id} />
                         <input type="hidden" name="status" value="declined" />
-                        <button className="inline-flex items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm font-semibold text-white/85 shadow-[0_0_0_1px_rgba(255,255,255,0.03)] hover:bg-white/[0.06]">
+                        <button className="inline-flex h-11 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] px-4 text-sm font-semibold text-white/85 shadow-[0_0_0_1px_rgba(255,255,255,0.03)] hover:bg-white/[0.06]">
                           Decline
                         </button>
                       </form>
@@ -523,7 +682,7 @@ export default async function DashboardRequestsPage({
                     <form action={setStatus}>
                       <input type="hidden" name="requestId" value={r.id} />
                       <input type="hidden" name="status" value="closed" />
-                      <button className="inline-flex items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm font-semibold text-white/85 shadow-[0_0_0_1px_rgba(255,255,255,0.03)] hover:bg-white/[0.06]">
+                      <button className="inline-flex h-11 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] px-4 text-sm font-semibold text-white/85 shadow-[0_0_0_1px_rgba(255,255,255,0.03)] hover:bg-white/[0.06]">
                         Close
                       </button>
                     </form>
