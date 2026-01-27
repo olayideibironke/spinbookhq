@@ -1,4 +1,4 @@
-// web/app/layout.tsx
+// FILE: app/layout.tsx
 import "./globals.css";
 
 import type { Metadata } from "next";
@@ -8,7 +8,8 @@ export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "SpinBook HQ",
-  description: "DJ marketplace",
+  description:
+    "Premium DJ marketplace. Book verified DJs for weddings, parties, and events — anywhere.",
 };
 
 export default async function RootLayout({
@@ -37,7 +38,7 @@ export default async function RootLayout({
         {/* Footer */}
         <footer className="border-t border-white/10 bg-black/40 backdrop-blur">
           <div className="mx-auto max-w-6xl px-6 py-4 text-center text-xs text-white/55">
-            © 2026 SpinBook HQ | Washington, D.C, U.S.A.
+            © 2026 SpinBook HQ | United States & Canada
             <br className="sm:hidden" />
             <span className="hidden sm:inline"> • </span>
             All Rights Reserved.
