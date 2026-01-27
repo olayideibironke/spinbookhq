@@ -54,11 +54,11 @@ export default function Home() {
                 </svg>
               </span>
               <span className="font-semibold tracking-wide">
-                Now Live in the DMV Area
+                Book DJs Anywhere
               </span>
               <span className="hidden sm:inline text-white/45">•</span>
               <span className="hidden sm:inline text-white/65">
-                Premium bookings
+                Premium Bookings
               </span>
             </div>
           </div>
