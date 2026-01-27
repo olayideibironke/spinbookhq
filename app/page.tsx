@@ -73,9 +73,9 @@ export default function Home() {
             </h1>
 
             <p className="mx-auto mt-6 max-w-2xl text-pretty text-base leading-relaxed text-white/70 md:text-lg">
-              {APP_NAME} connects you with trusted DJs for weddings, parties, and
-              corporate events. Clean profiles, fast responses, and secure
-              deposits.
+              {APP_NAME} is a premium DJ marketplace connecting clients with
+              verified DJs for weddings, parties, and corporate events — anywhere.
+              Clean profiles, fast responses, and secure deposits.
             </p>
           </div>
 
@@ -158,7 +158,9 @@ export default function Home() {
                 key={c.title}
                 className="rounded-3xl border border-white/10 bg-white/[0.04] p-5 text-left shadow-[0_18px_60px_rgba(0,0,0,0.55)] backdrop-blur"
               >
-                <div className="text-sm font-extrabold text-white">{c.title}</div>
+                <div className="text-sm font-extrabold text-white">
+                  {c.title}
+                </div>
                 <div className="mt-1 text-sm text-white/65">{c.body}</div>
               </div>
             ))}
