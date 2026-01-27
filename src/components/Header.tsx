@@ -2,23 +2,73 @@
 // Server Component – global header (NO hooks allowed)
 
 import Link from "next/link";
+import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import SignOutButton from "@/components/SignOutButton";
 import MobileNav from "@/components/MobileNav";
 
 export const dynamic = "force-dynamic";
 
+function getRequestPathname(): string | null {
+  // In Server Components we can't use usePathname().
+  // We try common proxy/framework headers that (often) contain the current URL/path.
+  // If unavailable, we safely return null (no active highlighting).
+  const h = headers();
+
+  const candidates = [
+    h.get("x-original-url"),
+    h.get("x-rewrite-url"),
+    h.get("x-next-url"),
+    h.get("next-url"),
+    h.get("x-invoke-path"),
+    h.get("x-vercel-path"),
+  ].filter(Boolean) as string[];
+
+  for (const raw of candidates) {
+    try {
+      // Some headers are full URLs, some are paths.
+      if (raw.startsWith("http://") || raw.startsWith("https://")) {
+        return new URL(raw).pathname;
+      }
+      // Ensure it looks like a path
+      if (raw.startsWith("/")) return raw;
+    } catch {
+      // ignore
+    }
+  }
+
+  // Last-resort: referer may exist (not guaranteed, and may be previous page)
+  const ref = h.get("referer");
+  if (ref) {
+    try {
+      return new URL(ref).pathname;
+    } catch {
+      // ignore
+    }
+  }
+
+  return null;
+}
+
 function NavLink({
   href,
   children,
+  isActive,
 }: {
   href: string;
   children: React.ReactNode;
+  isActive?: boolean;
 }) {
   return (
     <Link
       href={href}
-      className="rounded-full px-4 py-2 text-sm font-semibold text-white/75 hover:bg-white/10 hover:text-white"
+      aria-current={isActive ? "page" : undefined}
+      className={[
+        "rounded-full px-4 py-2 text-sm font-semibold transition",
+        isActive
+          ? "bg-white/15 text-white ring-1 ring-white/15 shadow-[0_0_0_1px_rgba(255,255,255,0.03)]"
+          : "text-white/75 hover:bg-white/10 hover:text-white",
+      ].join(" ")}
     >
       {children}
     </Link>
@@ -33,6 +83,27 @@ export default async function Header() {
 
   const email = user?.email ?? null;
   const isAuthed = !!user;
+
+  const pathname = getRequestPathname();
+
+  const isActive = (href: string) => {
+    if (!pathname) return false;
+
+    // Normalize
+    const p = pathname.replace(/\/+$/, "") || "/";
+    const h = href.replace(/\/+$/, "") || "/";
+
+    // Exact match
+    if (p === h) return true;
+
+    // Section link on home (e.g., /#how-it-works) should only be active on /
+    if (href.startsWith("/#")) return p === "/";
+
+    // Prefix match for dashboard sections
+    if (h.startsWith("/dashboard")) return p.startsWith("/dashboard");
+
+    return false;
+  };
 
   return (
     <header className="sticky top-0 z-50 border-b border-white/10 bg-black/40 backdrop-blur">
@@ -68,18 +139,42 @@ export default async function Header() {
         <nav className="hidden items-center gap-2 md:flex">
           {!isAuthed ? (
             <>
-              <NavLink href="/#how-it-works">How It Works</NavLink>
-              <NavLink href="/djs">Find DJs</NavLink>
-              <NavLink href="/contact">Contact</NavLink>
-              <NavLink href="/login">For DJs</NavLink>
+              <NavLink href="/#how-it-works" isActive={isActive("/#how-it-works")}>
+                How It Works
+              </NavLink>
+              <NavLink href="/djs" isActive={isActive("/djs")}>
+                Find DJs
+              </NavLink>
+              <NavLink href="/contact" isActive={isActive("/contact")}>
+                Contact
+              </NavLink>
+              <NavLink href="/login" isActive={isActive("/login")}>
+                For DJs
+              </NavLink>
             </>
           ) : (
             <>
-              <NavLink href="/djs">Browse DJs</NavLink>
-              <NavLink href="/dashboard">Dashboard</NavLink>
-              <NavLink href="/dashboard/requests">Requests</NavLink>
-              <NavLink href="/dashboard/profile">Profile</NavLink>
-              <NavLink href="/contact">Contact</NavLink>
+              <NavLink href="/djs" isActive={isActive("/djs")}>
+                Browse DJs
+              </NavLink>
+              <NavLink href="/dashboard" isActive={isActive("/dashboard")}>
+                Dashboard
+              </NavLink>
+              <NavLink
+                href="/dashboard/requests"
+                isActive={isActive("/dashboard/requests")}
+              >
+                Requests
+              </NavLink>
+              <NavLink
+                href="/dashboard/profile"
+                isActive={isActive("/dashboard/profile")}
+              >
+                Profile
+              </NavLink>
+              <NavLink href="/contact" isActive={isActive("/contact")}>
+                Contact
+              </NavLink>
             </>
           )}
         </nav>
