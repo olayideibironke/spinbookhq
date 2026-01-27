@@ -9,11 +9,10 @@ import MobileNav from "@/components/MobileNav";
 
 export const dynamic = "force-dynamic";
 
-function getRequestPathname(): string | null {
-  // In Server Components we can't use usePathname().
-  // We try common proxy/framework headers that (often) contain the current URL/path.
-  // If unavailable, we safely return null (no active highlighting).
-  const h = headers();
+async function getRequestPathname(): Promise<string | null> {
+  // In this Next.js version, headers() is async (returns a Promise).
+  // We safely await it, and if we can't resolve a path, we return null (no active highlight).
+  const h = await headers();
 
   const candidates = [
     h.get("x-original-url"),
@@ -26,11 +25,9 @@ function getRequestPathname(): string | null {
 
   for (const raw of candidates) {
     try {
-      // Some headers are full URLs, some are paths.
       if (raw.startsWith("http://") || raw.startsWith("https://")) {
         return new URL(raw).pathname;
       }
-      // Ensure it looks like a path
       if (raw.startsWith("/")) return raw;
     } catch {
       // ignore
@@ -84,22 +81,20 @@ export default async function Header() {
   const email = user?.email ?? null;
   const isAuthed = !!user;
 
-  const pathname = getRequestPathname();
+  const pathname = await getRequestPathname();
 
   const isActive = (href: string) => {
     if (!pathname) return false;
 
-    // Normalize
     const p = pathname.replace(/\/+$/, "") || "/";
     const h = href.replace(/\/+$/, "") || "/";
 
-    // Exact match
     if (p === h) return true;
 
-    // Section link on home (e.g., /#how-it-works) should only be active on /
+    // Section link on home should only be active on "/"
     if (href.startsWith("/#")) return p === "/";
 
-    // Prefix match for dashboard sections
+    // Dashboard section grouping
     if (h.startsWith("/dashboard")) return p.startsWith("/dashboard");
 
     return false;
