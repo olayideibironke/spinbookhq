@@ -4,9 +4,8 @@ import Link from "next/link";
 export const dynamic = "force-dynamic";
 
 export default function ContactPage() {
-  // ✅ Step 1: UI only. No backend. No env vars. Nothing can "break".
-  // ✅ Step 2 (later): you’ll replace FORM_ACTION with your form provider endpoint (Formspree etc.)
-  const FORM_ACTION = "#"; // <-- replace in Step 2
+  // Connected to Formspree (no backend needed)
+  const FORM_ACTION = "https://formspree.io/f/mlgbwagq";
 
   return (
     <main className="mx-auto w-full max-w-4xl px-6 py-14">
@@ -24,11 +23,22 @@ export default function ContactPage() {
 
         <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4">
           <p className="text-sm">
-            Email: <span className="font-medium">info@spinbookhq.com</span>
-            <span className="opacity-60"> (routes to your Gmail)</span>
+            Email:{" "}
+            <a
+              href="mailto:info@spinbookhq.com"
+              className="font-medium underline underline-offset-4 decoration-white/30 hover:decoration-white/70"
+            >
+              info@spinbookhq.com
+            </a>
           </p>
           <p className="mt-1 text-sm">
-            Phone: <span className="font-medium">+1 (202) 765-9663</span>
+            Phone:{" "}
+            <a
+              href="tel:+12027659663"
+              className="font-medium underline underline-offset-4 decoration-white/30 hover:decoration-white/70"
+            >
+              +1 (202) 765-9663
+            </a>
           </p>
         </div>
       </div>
@@ -103,16 +113,6 @@ export default function ContactPage() {
               Send message
             </button>
           </div>
-
-          {FORM_ACTION === "#" ? (
-            <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm">
-              <p className="font-semibold">One last step needed:</p>
-              <p className="mt-1 opacity-80">
-                The form is ready, but it’s not connected yet. Next we’ll connect it to an email-forwarding
-                form provider (no risky code). 
-              </p>
-            </div>
-          ) : null}
         </form>
       </div>
     </main>
