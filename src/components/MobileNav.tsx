@@ -67,13 +67,13 @@ export default function MobileNav({ isAuthed, email }: Props) {
                 </RowLink>
                 <div className="h-px bg-white/10" />
 
-                <RowLink href="/login" onClick={close}>
-                  For DJs
+                <RowLink href="/contact" onClick={close}>
+                  Contact
                 </RowLink>
                 <div className="h-px bg-white/10" />
 
-                <RowLink href="/contact" onClick={close}>
-                  Contact
+                <RowLink href="/login" onClick={close}>
+                  For DJs
                 </RowLink>
                 <div className="h-px bg-white/10" />
 
@@ -110,11 +110,6 @@ export default function MobileNav({ isAuthed, email }: Props) {
 
                 <RowLink href="/dashboard/profile" onClick={close}>
                   Profile
-                </RowLink>
-                <div className="h-px bg-white/10" />
-
-                <RowLink href="/contact" onClick={close}>
-                  Contact
                 </RowLink>
 
                 <div className="h-px bg-white/10" />
