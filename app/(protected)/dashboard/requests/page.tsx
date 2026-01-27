@@ -217,7 +217,7 @@ export default async function DashboardRequestsPage({
     const { data: req, error: reqErr } = await supabase
       .from("booking_requests")
       .select(
-        "id, dj_user_id, requester_email, requester_name, status, checkout_url, stripe_checkout_session_id, deposit_paid, quoted_total"
+        "id, dj_user_id, requester_email, requester_name, status, checkout_url, stripe_checkout_session_id, deposit_paid, quoted_total, platform_fee_total, platform_fee_paid, fee_status"
       )
       .eq("id", requestId)
       .single();
@@ -231,6 +231,7 @@ export default async function DashboardRequestsPage({
 
     if (req.deposit_paid) return;
 
+    // If already created, just revalidate UI
     if (req.checkout_url) {
       revalidatePath("/dashboard/requests");
       revalidatePath(`/dashboard/requests/${requestId}`);
@@ -252,6 +253,18 @@ export default async function DashboardRequestsPage({
 
     // ✅ FIXED deposit = $200
     const DEPOSIT_AMOUNT_CENTS = 20000;
+    const DEPOSIT_SPLIT_SPINBOOK_CENTS = 8000;
+    const DEPOSIT_SPLIT_DJ_CENTS = 12000;
+
+    // ✅ Ensure fee fields are consistent (safe recompute)
+    const quotedTotal = Number(req.quoted_total);
+    const platformFeeTotal = Number.isFinite(quotedTotal)
+      ? calcPlatformFeeTotal(quotedTotal)
+      : null;
+
+    const platformFeePaid = 80; // $80 of the deposit counts toward platform fee
+    const feeStatus =
+      platformFeeTotal != null && platformFeeTotal > platformFeePaid ? "due" : "ok";
 
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
@@ -261,8 +274,8 @@ export default async function DashboardRequestsPage({
           price_data: {
             currency: "usd",
             product_data: {
-              name: "DJ Booking Deposit",
-              description: `Non-refundable booking deposit for request ${requestId}. Final price: $${req.quoted_total}.`,
+              name: "DJ Booking Deposit ($200)",
+              description: `Non-refundable booking deposit for request ${requestId}. Declared final price: $${req.quoted_total}.`,
             },
             unit_amount: DEPOSIT_AMOUNT_CENTS,
           },
@@ -272,9 +285,23 @@ export default async function DashboardRequestsPage({
       success_url: `${origin}/book/success?rid=${requestId}${djSlugParam}`,
       cancel_url: `${origin}/book/cancel?rid=${requestId}${djSlugParam}`,
       metadata: {
+        // identifiers
         booking_request_id: requestId,
+        dj_user_id: String(req.dj_user_id ?? ""),
         dj_slug: djSlug || "",
+
+        // pricing + policy bookkeeping
+        deposit_amount_cents: String(DEPOSIT_AMOUNT_CENTS),
+        deposit_split_spinbook_cents: String(DEPOSIT_SPLIT_SPINBOOK_CENTS),
+        deposit_split_dj_cents: String(DEPOSIT_SPLIT_DJ_CENTS),
+
         quoted_total: String(req.quoted_total ?? ""),
+        platform_fee_total: platformFeeTotal != null ? String(platformFeeTotal) : "",
+        platform_fee_paid: String(platformFeePaid),
+
+        // human readable policy (for Stripe dashboard visibility)
+        policy:
+          "Deposit is $200. $80 to SpinBook, $120 to DJ. Deposit is non-refundable if client fails to pay full balance 7 days before event. SpinBook earns 10% of agreed total; remaining fee owed by DJ.",
       },
     });
 
@@ -283,6 +310,11 @@ export default async function DashboardRequestsPage({
       .update({
         checkout_url: session.url ?? null,
         stripe_checkout_session_id: session.id,
+
+        // keep DB fee fields consistent with the rules
+        ...(platformFeeTotal != null ? { platform_fee_total: platformFeeTotal } : {}),
+        platform_fee_paid: platformFeePaid,
+        fee_status: feeStatus,
       })
       .eq("id", requestId)
       .eq("dj_user_id", authedUser.id);
@@ -619,7 +651,7 @@ export default async function DashboardRequestsPage({
                       </p>
 
                       <p className="mt-2 text-xs text-white/45">
-                        Rule: The $200 deposit is non-refundable if the client fails to pay the full balance 7 days before the event.
+                        Policy: $200 deposit is non-refundable if the client fails to pay the full balance 7 days before the event. Deposit split: $80 SpinBook / $120 DJ.
                       </p>
                     </div>
 

@@ -1,7 +1,12 @@
+// FILE: app/book/cancel/page.tsx
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
+
+function formatUsd(amount: number) {
+  return amount.toLocaleString("en-US", { style: "currency", currency: "USD" });
+}
 
 export default async function BookingCancelPage({
   searchParams,
@@ -34,6 +39,11 @@ export default async function BookingCancelPage({
     }
   }
 
+  // Deposit constants (UI-only)
+  const DEPOSIT_TOTAL = 200;
+  const DEPOSIT_SPINBOOK = 80;
+  const DEPOSIT_DJ = 120;
+
   return (
     <main className="relative min-h-[calc(100vh-64px)] px-6 py-10">
       {/* ambient glow */}
@@ -62,6 +72,20 @@ export default async function BookingCancelPage({
               <span className="h-1.5 w-1.5 rounded-full bg-white/50" />
               CANCELED
             </span>
+          </div>
+
+          {/* Deposit reminder */}
+          <div className="mt-7 rounded-3xl border border-white/10 bg-black/20 p-5 sm:p-6">
+            <p className="text-sm font-semibold">Deposit reminder</p>
+            <p className="mt-3 text-sm text-[var(--muted-foreground)]">
+              To book a DJ, you must pay a <b>{formatUsd(DEPOSIT_TOTAL)}</b> non-refundable deposit
+              (split: <b>{formatUsd(DEPOSIT_SPINBOOK)}</b> SpinBook HQ +{" "}
+              <b>{formatUsd(DEPOSIT_DJ)}</b> DJ).
+            </p>
+            <p className="mt-3 text-xs text-[var(--muted-foreground)]">
+              Policy: If you do <b>NOT</b> pay the full remaining balance to the DJ <b>7 days</b>{" "}
+              before the event, the deposit is forfeited and the DJ may cancel.
+            </p>
           </div>
 
           <div className="mt-7 rounded-3xl border border-white/10 bg-black/20 p-5 sm:p-6">

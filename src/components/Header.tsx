@@ -71,6 +71,7 @@ export default async function Header() {
               <NavLink href="/#how-it-works">How It Works</NavLink>
               <NavLink href="/djs">Find DJs</NavLink>
               <NavLink href="/login">For DJs</NavLink>
+              <NavLink href="/contact">Contact</NavLink>
             </>
           ) : (
             <>
@@ -78,6 +79,7 @@ export default async function Header() {
               <NavLink href="/dashboard">Dashboard</NavLink>
               <NavLink href="/dashboard/requests">Requests</NavLink>
               <NavLink href="/dashboard/profile">Profile</NavLink>
+              <NavLink href="/contact">Contact</NavLink>
             </>
           )}
         </nav>

@@ -72,12 +72,23 @@ function toPositiveIntOrNull(raw: string) {
 }
 
 function calcPlatformFeeTotal(quotedTotal: number) {
+  // dollars
   return Math.ceil(quotedTotal * 0.1);
 }
 
 function calcFeeDue(platformFeeTotal: number, platformFeePaid: number) {
   const due = platformFeeTotal - platformFeePaid;
   return due > 0 ? due : 0;
+}
+
+function getOriginFromHeaders(h: Headers) {
+  const explicitOrigin = h.get("origin");
+  if (explicitOrigin) return explicitOrigin;
+
+  const proto = h.get("x-forwarded-proto") ?? "https";
+  const host = h.get("x-forwarded-host") ?? h.get("host") ?? "";
+  if (!host) return "";
+  return `${proto}://${host}`;
 }
 
 export default async function DashboardRequestDetailPage({
@@ -130,7 +141,11 @@ export default async function DashboardRequestDetailPage({
     // ✅ Minimum starting price rule
     if (!quoted_total || quoted_total < 450) return;
 
+    // Platform fee is 10% of the total agreed booking price (dollars)
     const platform_fee_total = calcPlatformFeeTotal(quoted_total);
+
+    // ✅ Deposit framework: $200 deposit collected from client.
+    // ✅ Split: $80 SpinBook (counts as platform fee already paid), $120 goes to DJ.
     const platform_fee_paid = 80;
     const fee_status = platform_fee_total > platform_fee_paid ? "due" : "ok";
 
@@ -200,7 +215,7 @@ export default async function DashboardRequestDetailPage({
     const { data: r } = await supabase
       .from("booking_requests")
       .select(
-        "id, created_at, dj_user_id, requester_name, requester_email, event_date, event_location, message, status, deposit_paid, quoted_total"
+        "id, created_at, dj_user_id, requester_name, requester_email, event_date, event_location, message, status, deposit_paid, quoted_total, platform_fee_total, platform_fee_paid"
       )
       .eq("id", requestId)
       .eq("dj_user_id", user.id)
@@ -228,19 +243,35 @@ export default async function DashboardRequestDetailPage({
       .maybeSingle<{ slug: string | null; stage_name: string | null }>();
 
     const djSlug = (djProfile?.slug ?? "").trim();
+    const stageName = (djProfile?.stage_name ?? "").trim();
     if (!djSlug) redirect(`/dashboard/requests/${encodeURIComponent(requestId)}?ok=0`);
 
-    // ✅ FIXED deposit = $200
+    // ✅ Deposit = $200 (cents)
     const DEPOSIT_AMOUNT_CENTS = 20000;
-    const depositLabel = "DJ Booking Deposit ($200)";
 
-    const origin = (await headers()).get("origin") ?? "";
-    const successUrl = `${origin}/dj/${encodeURIComponent(
-      djSlug
-    )}?deposit=success&rid=${encodeURIComponent(r.id)}`;
-    const cancelUrl = `${origin}/dj/${encodeURIComponent(
-      djSlug
-    )}?deposit=cancel&rid=${encodeURIComponent(r.id)}`;
+    // ✅ Deposit split (cents)
+    const PLATFORM_DEPOSIT_CENTS = 8000; // $80 to SpinBook (counts toward the 10% platform fee)
+    const DJ_DEPOSIT_CENTS = 12000; // $120 to DJ
+
+    const depositLabel = "SpinBook HQ DJ Booking Deposit ($200)";
+    const depositDesc = [
+      `Non-refundable deposit.`,
+      `Deposit split: $80 SpinBook HQ + $120 DJ.`,
+      `Final agreed price: $${r.quoted_total}.`,
+      `Policy: If client does NOT pay full balance to DJ 7 days before event, deposit is forfeited and DJ may cancel.`,
+    ].join(" ");
+
+    const h = await headers();
+    const origin = getOriginFromHeaders(h);
+    if (!origin) redirect(`/dashboard/requests/${encodeURIComponent(requestId)}?ok=0`);
+
+    // ✅ Use existing success/cancel pages (no new routes)
+    const successUrl = `${origin}/book/success?rid=${encodeURIComponent(
+      r.id
+    )}&dj=${encodeURIComponent(djSlug)}`;
+    const cancelUrl = `${origin}/book/cancel?rid=${encodeURIComponent(
+      r.id
+    )}&dj=${encodeURIComponent(djSlug)}`;
 
     const secret = process.env.STRIPE_SECRET_KEY;
     if (!secret) redirect(`/dashboard/requests/${encodeURIComponent(requestId)}?ok=0`);
@@ -260,22 +291,37 @@ export default async function DashboardRequestDetailPage({
             unit_amount: DEPOSIT_AMOUNT_CENTS,
             product_data: {
               name: depositLabel,
-              description: `Non-refundable deposit. Final price declared: $${r.quoted_total}.`,
+              description: depositDesc,
             },
           },
         },
       ],
       metadata: {
+        // Required identifiers
         booking_request_id: r.id,
         dj_user_id: r.dj_user_id,
         requester_email: r.requester_email,
-        quoted_total: String(r.quoted_total ?? ""),
+
+        // Pricing + fee tracking (dollars for totals, cents for deposit)
+        quoted_total_dollars: String(r.quoted_total ?? ""),
+        platform_fee_total_dollars: String(r.platform_fee_total ?? ""),
+        platform_fee_paid_dollars: String(r.platform_fee_paid ?? ""),
+
+        deposit_total_cents: String(DEPOSIT_AMOUNT_CENTS),
+        deposit_platform_cents: String(PLATFORM_DEPOSIT_CENTS),
+        deposit_dj_cents: String(DJ_DEPOSIT_CENTS),
+
+        // Helpful context for UX/webhook logging
+        dj_slug: djSlug,
+        dj_stage_name: stageName || "",
+        event_date: r.event_date,
+        event_location: r.event_location,
       },
     });
 
     if (!session?.url) redirect(`/dashboard/requests/${encodeURIComponent(requestId)}?ok=0`);
 
-    // Store session id so webhook can also match by session id if needed
+    // Store session id so webhook can match by session id if needed
     await supabase
       .from("booking_requests")
       .update({ stripe_checkout_session_id: session.id })
@@ -329,7 +375,11 @@ export default async function DashboardRequestDetailPage({
   }
 
   const mailtoHref = buildMailto(request);
+
+  // Deposit constants (cents)
   const DEPOSIT_AMOUNT_CENTS = 20000;
+  const PLATFORM_DEPOSIT_CENTS = 8000;
+  const DJ_DEPOSIT_CENTS = 12000;
 
   const quoted = request.quoted_total ?? null;
   const platformFeeTotal = request.platform_fee_total ?? null;
@@ -343,9 +393,7 @@ export default async function DashboardRequestDetailPage({
     <main className="p-6">
       <div className="max-w-4xl">
         <h1 className="text-3xl font-bold">Request Details</h1>
-        <p className="mt-2 text-sm opacity-70">
-          Full details for this booking request.
-        </p>
+        <p className="mt-2 text-sm opacity-70">Full details for this booking request.</p>
 
         <div className="mt-6 flex flex-wrap gap-4">
           <Link className="underline text-sm" href="/dashboard/requests">
@@ -356,19 +404,54 @@ export default async function DashboardRequestDetailPage({
           </Link>
         </div>
 
+        <div className="mt-6 rounded-2xl border p-4">
+          <p className="text-sm font-semibold">Deposit policy (Client)</p>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm opacity-80">
+            <li>
+              Client must pay a <b>$200 non-refundable deposit</b> to book any DJ.
+            </li>
+            <li>
+              Deposit split: <b>$80 to SpinBook HQ</b> + <b>$120 to DJ</b>.
+            </li>
+            <li>
+              If client does <b>NOT</b> pay full balance to DJ <b>7 days</b> before the event,
+              deposit is forfeited and DJ may cancel.
+            </li>
+          </ul>
+          <p className="mt-3 text-xs opacity-70">
+            Note: SpinBook HQ earns 10% of the total agreed booking price. The $80 is collected
+            upfront from the deposit. Any remaining platform fee is owed by the DJ later.
+          </p>
+        </div>
+
         {quoted != null ? (
           <div className="mt-6 rounded-2xl border p-4">
-            <p className="text-sm font-semibold">Declared final price</p>
+            <p className="text-sm font-semibold">Declared agreed total price</p>
             <p className="mt-1 text-xl font-extrabold">${quoted}</p>
-            <p className="mt-2 text-xs opacity-70">
-              This is used to calculate SpinBook’s 10%. Deposit covers $80.
-            </p>
 
-            {feeDue != null && feeDue > 0 ? (
-              <p className="mt-2 text-sm">
-                Platform fee due after deposit: <b>${feeDue}</b>
-              </p>
-            ) : null}
+            <div className="mt-3 grid gap-2 text-sm opacity-80">
+              <div>
+                <span className="font-medium">SpinBook HQ platform fee (10%):</span>{" "}
+                <span className="font-semibold">
+                  {platformFeeTotal != null ? `$${platformFeeTotal}` : "—"}
+                </span>
+              </div>
+              <div>
+                <span className="font-medium">Collected upfront (from deposit):</span>{" "}
+                <span className="font-semibold">$80</span>
+              </div>
+              {feeDue != null ? (
+                <div>
+                  <span className="font-medium">Remaining fee due (DJ owes later):</span>{" "}
+                  <span className="font-semibold">{feeDue > 0 ? `$${feeDue}` : "$0"}</span>
+                </div>
+              ) : null}
+            </div>
+
+            <p className="mt-3 text-xs opacity-70">
+              Deposit amount is fixed at {formatUsdFromCents(DEPOSIT_AMOUNT_CENTS)} (Split:{" "}
+              {formatUsdFromCents(PLATFORM_DEPOSIT_CENTS)} / {formatUsdFromCents(DJ_DEPOSIT_CENTS)}).
+            </p>
           </div>
         ) : null}
 
@@ -378,9 +461,7 @@ export default async function DashboardRequestDetailPage({
             <p className="mt-2 text-sm opacity-80">
               Paid at:{" "}
               <span className="font-mono">
-                {request.deposit_paid_at
-                  ? new Date(request.deposit_paid_at).toLocaleString()
-                  : "—"}
+                {request.deposit_paid_at ? new Date(request.deposit_paid_at).toLocaleString() : "—"}
               </span>
             </p>
           </div>
@@ -390,8 +471,7 @@ export default async function DashboardRequestDetailPage({
           <div className="mt-6 rounded-2xl border p-4">
             <p className="text-sm font-semibold">Deposit link created ✅</p>
             <p className="mt-2 text-sm opacity-80">
-              Send this link to the client to pay the deposit (
-              {formatUsdFromCents(DEPOSIT_AMOUNT_CENTS)}).
+              Send this link to the client to pay the deposit ({formatUsdFromCents(DEPOSIT_AMOUNT_CENTS)}).
             </p>
             <div className="mt-3 flex flex-col gap-2">
               <a
@@ -404,7 +484,9 @@ export default async function DashboardRequestDetailPage({
               </a>
             </div>
             <p className="mt-3 text-xs opacity-70">
-              Rule: Deposit is non-refundable if client fails to pay full balance 7 days before the event.
+              Deposit split: {formatUsdFromCents(PLATFORM_DEPOSIT_CENTS)} SpinBook HQ +{" "}
+              {formatUsdFromCents(DJ_DEPOSIT_CENTS)} DJ. Non-refundable if client fails to pay full balance 7 days before
+              event.
             </p>
           </div>
         ) : null}
@@ -413,8 +495,7 @@ export default async function DashboardRequestDetailPage({
           <div className="mt-6 rounded-2xl border p-4">
             <p className="text-sm font-semibold">Something went wrong</p>
             <p className="mt-2 text-sm opacity-80">
-              Could not create a deposit link. Make sure the request is{" "}
-              <b>Accepted with a final price</b> first.
+              Could not create a deposit link. Make sure the request is <b>Accepted with a final price</b> first.
             </p>
           </div>
         ) : null}
@@ -427,18 +508,13 @@ export default async function DashboardRequestDetailPage({
               <p className="text-sm opacity-70">{request.requester_email}</p>
 
               <div className="mt-3 flex flex-wrap gap-2">
-                <a
-                  className="rounded-md border px-3 py-2 text-sm font-medium underline"
-                  href={mailtoHref}
-                >
+                <a className="rounded-md border px-3 py-2 text-sm font-medium underline" href={mailtoHref}>
                   Email requester
                 </a>
               </div>
             </div>
 
-            <span className="rounded-full border px-3 py-1 text-xs">
-              {request.status.toUpperCase()}
-            </span>
+            <span className="rounded-full border px-3 py-1 text-xs">{request.status.toUpperCase()}</span>
           </div>
 
           <div className="mt-6 grid gap-3 text-sm">
@@ -456,9 +532,7 @@ export default async function DashboardRequestDetailPage({
                 {request.message?.trim() ? request.message : "No message provided."}
               </span>
             </div>
-            <div className="text-xs opacity-60">
-              Submitted: {new Date(request.created_at).toLocaleString()}
-            </div>
+            <div className="text-xs opacity-60">Submitted: {new Date(request.created_at).toLocaleString()}</div>
           </div>
 
           <div className="mt-6 flex flex-wrap gap-2">
@@ -470,21 +544,17 @@ export default async function DashboardRequestDetailPage({
                     type="text"
                     name="quoted_total"
                     inputMode="numeric"
-                    placeholder="Final price (min $450)"
+                    placeholder="Agreed total price (min $450)"
                     className="rounded-md border px-3 py-2 text-sm"
                     required
                   />
-                  <button className="rounded-md border px-3 py-2 text-sm font-medium">
-                    Accept & Quote
-                  </button>
+                  <button className="rounded-md border px-3 py-2 text-sm font-medium">Accept & Quote</button>
                 </form>
 
                 <form action={setStatus}>
                   <input type="hidden" name="requestId" value={request.id} />
                   <input type="hidden" name="status" value="declined" />
-                  <button className="rounded-md border px-3 py-2 text-sm font-medium">
-                    Decline
-                  </button>
+                  <button className="rounded-md border px-3 py-2 text-sm font-medium">Decline</button>
                 </form>
               </>
             ) : null}
@@ -503,9 +573,7 @@ export default async function DashboardRequestDetailPage({
                 <form action={setStatus}>
                   <input type="hidden" name="requestId" value={request.id} />
                   <input type="hidden" name="status" value="closed" />
-                  <button className="rounded-md border px-3 py-2 text-sm font-medium">
-                    Close
-                  </button>
+                  <button className="rounded-md border px-3 py-2 text-sm font-medium">Close</button>
                 </form>
               </>
             ) : null}
@@ -514,9 +582,7 @@ export default async function DashboardRequestDetailPage({
               <form action={setStatus}>
                 <input type="hidden" name="requestId" value={request.id} />
                 <input type="hidden" name="status" value="closed" />
-                <button className="rounded-md border px-3 py-2 text-sm font-medium">
-                  Close
-                </button>
+                <button className="rounded-md border px-3 py-2 text-sm font-medium">Close</button>
               </form>
             ) : null}
           </div>
