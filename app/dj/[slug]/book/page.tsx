@@ -5,6 +5,7 @@ import crypto from "crypto";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs"; // ✅ IMPORTANT: avoid Edge runtime (Node crypto required)
 
 type DjPublic = {
   user_id: string;
@@ -258,6 +259,7 @@ export default async function DjBookingPage({
       });
 
       if (sendRes.ok) {
+        // NOTE: only works if your DB has request_email_sent_at column
         await sb
           .from("booking_requests")
           .update({ request_email_sent_at: new Date().toISOString() })
@@ -268,7 +270,11 @@ export default async function DjBookingPage({
 
       redirect(`/dj/${slug}/book?ok=1`);
     } catch (e: any) {
-      console.warn("[SpinBookHQ] submitBooking exception:", String(e?.message ?? e));
+      console.warn(
+        "[SpinBookHQ] submitBooking exception:",
+        String(e?.message ?? e),
+        e?.stack ? `\n${e.stack}` : ""
+      );
       redirect(`/dj/${slug}/book?ok=0&reason=server_exception`);
     }
   }
@@ -292,7 +298,7 @@ export default async function DjBookingPage({
       : reason === "insert_failed"
       ? "Could not create request (database insert failed)."
       : reason === "server_exception"
-      ? "Server error (see logs)."
+      ? "Server error (check Vercel logs)."
       : reason
       ? `Error: ${reason}`
       : "";
