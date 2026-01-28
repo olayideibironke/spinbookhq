@@ -10,11 +10,28 @@ type DjPublic = {
   stage_name: string | null;
   city: string | null;
   published: boolean | null;
+  genres?: unknown;
 };
 
 function isValidEmail(email: string) {
   const e = email.trim();
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
+}
+
+function parseGenres(raw: unknown): string[] {
+  if (!raw) return [];
+  if (Array.isArray(raw)) {
+    return raw
+      .map((x) => (typeof x === "string" ? x.trim() : ""))
+      .filter(Boolean);
+  }
+  if (typeof raw === "string") {
+    return raw
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+  return [];
 }
 
 export default async function DjBookingPage({
@@ -32,7 +49,7 @@ export default async function DjBookingPage({
 
   const { data: dj, error: djErr } = await supabase
     .from("dj_profiles")
-    .select("user_id, slug, stage_name, city, published")
+    .select("user_id, slug, stage_name, city, published, genres")
     .eq("slug", slug)
     .maybeSingle<DjPublic>();
 
@@ -69,7 +86,6 @@ export default async function DjBookingPage({
     const location = String(formData.get("location") ?? "").trim();
     const message = String(formData.get("message") ?? "").trim();
 
-    // basic required fields
     if (!name || !email || !eventDate || !location) {
       redirect(`/dj/${slug}/book?ok=0`);
     }
@@ -80,7 +96,6 @@ export default async function DjBookingPage({
 
     const sb = await createClient();
 
-    // re-fetch DJ inside action (safe)
     const { data: djRow, error: djRowErr } = await sb
       .from("dj_profiles")
       .select("user_id, published")
@@ -110,6 +125,9 @@ export default async function DjBookingPage({
 
   const djName = dj.stage_name ?? "DJ";
   const djCity = dj.city ?? null;
+
+  const genres = parseGenres((dj as any).genres);
+  const topGenres = genres.slice(0, 6);
 
   const showSuccess = ok === "1";
   const showError = ok === "0";
@@ -143,7 +161,26 @@ export default async function DjBookingPage({
             {djCity ? <span className="text-white/55"> • {djCity}</span> : null}
           </p>
 
-          <p className="mt-2 max-w-2xl text-sm text-white/60">
+          {/* ✅ Genre chips added here */}
+          {topGenres.length > 0 ? (
+            <div className="mt-4">
+              <p className="text-xs font-extrabold tracking-[0.18em] text-white/55">
+                GENRES
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {topGenres.map((g) => (
+                  <span
+                    key={g}
+                    className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-sm font-semibold text-white/80"
+                  >
+                    {g}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          <p className="mt-4 max-w-2xl text-sm text-white/60">
             Fill this out once. If the DJ accepts, you may be asked to pay a
             secure deposit to confirm.
           </p>
