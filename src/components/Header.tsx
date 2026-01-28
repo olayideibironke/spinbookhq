@@ -50,7 +50,17 @@ export default async function Header() {
   const email = user?.email ?? null;
 
   const pathname = await getRequestPathname();
-  const isActive = (href: string) => pathname === href;
+
+  // Normalize pathname for reliable matching (strip trailing slash)
+  const normalize = (s: string) => (s || "").replace(/\/+$/, "") || "/";
+  const current = normalize(pathname || "/");
+
+  const isActive = (href: string) => {
+    // Section link should only be active on home
+    if (href.startsWith("/#")) return current === "/";
+
+    return current === normalize(href);
+  };
 
   return (
     <header className="sticky top-0 z-50 border-b border-white/10 bg-black/40 backdrop-blur">
@@ -99,9 +109,47 @@ export default async function Header() {
           </div>
         </div>
 
+        {/* ✅ Desktop nav links (were missing) */}
+        <nav className="mt-3 hidden md:flex items-center gap-2">
+          {!isAuthed ? (
+            <>
+              <NavLink href="/#how-it-works" isActive={isActive("/#how-it-works")}>
+                How It Works
+              </NavLink>
+              <NavLink href="/djs" isActive={isActive("/djs")}>
+                Find DJs
+              </NavLink>
+              <NavLink href="/contact" isActive={isActive("/contact")}>
+                Contact
+              </NavLink>
+              <NavLink href="/login" isActive={isActive("/login")}>
+                For DJs
+              </NavLink>
+            </>
+          ) : (
+            <>
+              <NavLink href="/djs" isActive={isActive("/djs")}>
+                Browse DJs
+              </NavLink>
+              <NavLink href="/dashboard" isActive={isActive("/dashboard")}>
+                Dashboard
+              </NavLink>
+              <NavLink href="/dashboard/requests" isActive={isActive("/dashboard/requests")}>
+                Requests
+              </NavLink>
+              <NavLink href="/dashboard/profile" isActive={isActive("/dashboard/profile")}>
+                Profile
+              </NavLink>
+              <NavLink href="/contact" isActive={isActive("/contact")}>
+                Contact
+              </NavLink>
+            </>
+          )}
+        </nav>
+
         {/* Mobile primary nav (always visible) */}
         <div className="mt-3 md:hidden">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 overflow-x-auto whitespace-nowrap [-webkit-overflow-scrolling:touch]">
             <NavLink href="/#how-it-works" isActive={false}>
               How It Works
             </NavLink>
@@ -114,7 +162,7 @@ export default async function Header() {
 
             <Link
               href="/djs"
-              className="ml-auto rounded-full bg-fuchsia-500 px-4 py-2 text-sm font-extrabold text-white"
+              className="ml-auto shrink-0 rounded-full bg-fuchsia-500 px-4 py-2 text-sm font-extrabold text-white"
             >
               Book a DJ
             </Link>
