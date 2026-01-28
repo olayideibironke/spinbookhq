@@ -51,14 +51,11 @@ export default async function Header() {
 
   const pathname = await getRequestPathname();
 
-  // Normalize pathname for reliable matching (strip trailing slash)
   const normalize = (s: string) => (s || "").replace(/\/+$/, "") || "/";
   const current = normalize(pathname || "/");
 
   const isActive = (href: string) => {
-    // Section link should only be active on home
     if (href.startsWith("/#")) return current === "/";
-
     return current === normalize(href);
   };
 
@@ -109,11 +106,14 @@ export default async function Header() {
           </div>
         </div>
 
-        {/* ✅ Desktop nav links (were missing) */}
-        <nav className="mt-3 hidden md:flex items-center gap-2">
+        {/* ✅ Desktop nav links (centered) */}
+        <nav className="mt-3 hidden md:flex items-center justify-center gap-2">
           {!isAuthed ? (
             <>
-              <NavLink href="/#how-it-works" isActive={isActive("/#how-it-works")}>
+              <NavLink
+                href="/#how-it-works"
+                isActive={isActive("/#how-it-works")}
+              >
                 How It Works
               </NavLink>
               <NavLink href="/djs" isActive={isActive("/djs")}>
@@ -134,10 +134,16 @@ export default async function Header() {
               <NavLink href="/dashboard" isActive={isActive("/dashboard")}>
                 Dashboard
               </NavLink>
-              <NavLink href="/dashboard/requests" isActive={isActive("/dashboard/requests")}>
+              <NavLink
+                href="/dashboard/requests"
+                isActive={isActive("/dashboard/requests")}
+              >
                 Requests
               </NavLink>
-              <NavLink href="/dashboard/profile" isActive={isActive("/dashboard/profile")}>
+              <NavLink
+                href="/dashboard/profile"
+                isActive={isActive("/dashboard/profile")}
+              >
                 Profile
               </NavLink>
               <NavLink href="/contact" isActive={isActive("/contact")}>
