@@ -26,8 +26,50 @@ function pickBio(profile: any) {
   return profile?.bio || profile?.about || profile?.description || null;
 }
 
+/**
+ * Global-ready location formatter:
+ * - If structured fields exist, format as: City • Region/State/Province • Country
+ * - Otherwise fall back to: location / city / base_location
+ */
 function pickLocation(profile: any) {
-  return profile?.location || profile?.city || profile?.base_location || null;
+  const city =
+    profile?.city ??
+    profile?.town ??
+    profile?.locality ??
+    profile?.base_city ??
+    null;
+
+  const region =
+    profile?.state ??
+    profile?.region ??
+    profile?.province ??
+    profile?.state_province ??
+    profile?.base_region ??
+    null;
+
+  const country =
+    profile?.country ??
+    profile?.nation ??
+    profile?.base_country ??
+    null;
+
+  const parts = [city, region, country]
+    .map((v) => (typeof v === "string" ? v.trim() : v))
+    .filter(Boolean) as string[];
+
+  if (parts.length) {
+    // Deduplicate in case someone stored same value twice
+    const unique: string[] = [];
+    for (const p of parts) {
+      if (!unique.some((u) => u.toLowerCase() === p.toLowerCase())) unique.push(p);
+    }
+    return unique.join(" • ");
+  }
+
+  const fallback =
+    profile?.location || profile?.base_location || profile?.city || null;
+
+  return typeof fallback === "string" ? fallback.trim() : fallback;
 }
 
 function pickGenres(profile: any) {
@@ -46,7 +88,8 @@ function pickGenres(profile: any) {
 
 function pickStartingPrice(profile: any) {
   const raw = profile?.starting_price ?? profile?.price_from ?? profile?.price;
-  const n = typeof raw === "string" ? Number(raw.replace(/[^\d]/g, "")) : Number(raw);
+  const n =
+    typeof raw === "string" ? Number(raw.replace(/[^\d]/g, "")) : Number(raw);
   if (!Number.isFinite(n)) return null;
   const int = Math.floor(n);
   return int > 0 ? int : null;
@@ -214,8 +257,27 @@ export default async function DjPublicProfilePage({
 
             {(location || genres.length > 0) && (
               <div className="mt-5 flex flex-wrap gap-2 text-sm">
+                {/* ✅ Location as a dedicated pill (global-ready) */}
                 {location && (
-                  <span className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-white/70">
+                  <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-white/70">
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      aria-hidden="true"
+                      className="h-4 w-4 text-white/60"
+                    >
+                      <path
+                        d="M12 21s-7-4.35-7-11a7 7 0 1 1 14 0c0 6.65-7 11-7 11Z"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                      />
+                      <path
+                        d="M12 10.5a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        opacity="0.9"
+                      />
+                    </svg>
                     {location}
                   </span>
                 )}
