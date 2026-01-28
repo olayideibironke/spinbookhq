@@ -5,6 +5,8 @@ import { buildPublicRequestUrl, requestSentEmail, sendEmail } from "@/lib/email"
 
 export const dynamic = "force-dynamic";
 
+const COMPANY_BCC = "spinbookhq@gmail.com";
+
 type DjPublic = {
   user_id: string;
   slug: string | null;
@@ -141,29 +143,22 @@ export default async function DjBookingPage({
       redirect(`/dj/${slug}/book?ok=0`);
     }
 
-    // Email #1 — Request received (Requester + BCC SpinBook HQ)
-    // IMPORTANT: If email sending fails, do NOT mark request_email_sent_at.
+    // Email #1 — Request sent (BCC SpinBook HQ for company visibility)
     try {
-      const BCC_COMPANY = "spinbookhq@gmail.com";
-
       const tokenUrl = buildPublicRequestUrl(inserted.public_token);
 
-      const baseEmail = requestSentEmail({
+      const payload: any = requestSentEmail({
         to: email,
         djName: djRow.stage_name ?? "DJ",
         eventDate,
         eventLocation: location,
         tokenUrl,
+      });
 
-        // Extra context (safe if template ignores it)
-        bookingId: inserted.id as any,
-        publicToken: inserted.public_token as any,
-      } as any);
+      // ✅ professional: company visibility / audit trail
+      payload.bcc = [COMPANY_BCC];
 
-      await sendEmail({
-        ...(baseEmail as any),
-        bcc: [BCC_COMPANY],
-      } as any);
+      await sendEmail(payload);
 
       await sb
         .from("booking_requests")
