@@ -28,12 +28,18 @@ export default async function RootLayout({
 
   return (
     <html lang="en">
-      <body className="min-h-screen flex flex-col">
+      <body
+        className={[
+          "min-h-screen flex flex-col",
+          // Mobile reserve so fixed WhatsApp never covers buttons/inputs
+          "pb-[calc(env(safe-area-inset-bottom)+6.5rem)] sm:pb-0",
+        ].join(" ")}
+      >
         <Header />
 
-        <main className="mx-auto w-full max-w-6xl px-6 py-8 flex-1">
-          {children}
-        </main>
+        {/* IMPORTANT: Let each page control its own max-width/padding.
+           This prevents double-padding + chaos on mobile. */}
+        <main className="flex-1">{children}</main>
 
         {/* Footer */}
         <footer className="border-t border-white/10 bg-black/40 backdrop-blur">
@@ -52,9 +58,11 @@ export default async function RootLayout({
           rel="noreferrer"
           aria-label="Chat with SpinBook HQ on WhatsApp"
           className={[
-            "fixed bottom-6 right-6 z-[60]",
+            "fixed z-[60]",
+            "bottom-4 right-4 sm:bottom-6 sm:right-6",
             "inline-flex items-center gap-3 rounded-full",
-            "bg-emerald-500 px-5 py-3 text-sm font-extrabold text-white",
+            "bg-emerald-500 px-4 py-3 sm:px-5",
+            "text-sm font-extrabold text-white",
             "shadow-lg shadow-emerald-500/20 ring-1 ring-white/10",
             "transition hover:brightness-110 hover:shadow-emerald-500/30",
             "focus:outline-none focus:ring-2 focus:ring-emerald-300/40",
@@ -73,7 +81,10 @@ export default async function RootLayout({
             </svg>
           </span>
 
-          <span className="whitespace-nowrap">Chat With Us! 24/7</span>
+          {/* ✅ Mobile: icon only. Desktop: show label */}
+          <span className="hidden sm:inline whitespace-nowrap">
+            Chat With Us! 24/7
+          </span>
         </a>
       </body>
     </html>

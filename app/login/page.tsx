@@ -106,7 +106,7 @@ export default async function LoginPage(props: {
     "focus:border-white/20 focus:bg-white/[0.08] focus:ring-2 focus:ring-white/15";
 
   return (
-    <main className="relative min-h-screen px-6 py-10">
+    <main className="relative px-6 py-14 sm:py-16">
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 overflow-hidden"
@@ -116,7 +116,7 @@ export default async function LoginPage(props: {
         <div className="absolute bottom-10 right-10 h-56 w-80 rounded-full bg-white/5 blur-3xl" />
       </div>
 
-      <div className="relative mx-auto flex min-h-[calc(100vh-80px)] w-full max-w-md items-center">
+      <div className="relative mx-auto flex min-h-[calc(100vh-160px)] w-full max-w-md items-center">
         <div className="w-full rounded-3xl border border-white/10 bg-white/[0.04] p-6 shadow-[0_18px_60px_rgba(0,0,0,0.55)] backdrop-blur sm:p-8">
           <div className="flex items-start justify-between gap-4">
             <div>
@@ -127,7 +127,9 @@ export default async function LoginPage(props: {
                 SpinBook HQ
               </h1>
               <p className="mt-2 text-sm text-white/65">
-                {mode === "signin" ? "Sign in to continue" : "Create your DJ account"}
+                {mode === "signin"
+                  ? "Sign in to continue"
+                  : "Create your DJ account"}
               </p>
             </div>
 
@@ -137,15 +139,13 @@ export default async function LoginPage(props: {
             </span>
           </div>
 
-          <form
-            action={authAction}
-            className="mt-7 space-y-4"
-            suppressHydrationWarning
-          >
+          <form action={authAction} className="mt-7 space-y-4" suppressHydrationWarning>
             <input type="hidden" name="mode" value={mode} />
 
             <div className="space-y-2">
-              <label className="text-sm font-semibold text-white/85">Email</label>
+              <label className="text-sm font-semibold text-white/85">
+                Email
+              </label>
               <input
                 className={inputClass}
                 type="email"
@@ -166,7 +166,9 @@ export default async function LoginPage(props: {
                 name="password"
                 placeholder="********"
                 required
-                autoComplete={mode === "signin" ? "current-password" : "new-password"}
+                autoComplete={
+                  mode === "signin" ? "current-password" : "new-password"
+                }
               />
             </div>
 
