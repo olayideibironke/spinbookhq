@@ -2,6 +2,7 @@
 // Server Component – global header (NO hooks allowed)
 
 import Link from "next/link";
+import Image from "next/image";
 import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import SignOutButton from "@/components/SignOutButton";
@@ -65,9 +66,18 @@ export default async function Header() {
         {/* Brand row */}
         <div className="flex items-center justify-between">
           <Link href="/" className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-sm font-black text-white">
-              S
+            {/* ✅ Real logo */}
+            <div className="relative h-10 w-10 overflow-hidden rounded-full bg-white/10 ring-1 ring-white/10">
+              <Image
+                src="/logo.png"
+                alt="SpinBook HQ logo"
+                fill
+                sizes="40px"
+                className="object-cover"
+                priority
+              />
             </div>
+
             <div>
               <div className="flex items-center gap-2">
                 <span className="text-base font-extrabold text-white">
@@ -106,7 +116,7 @@ export default async function Header() {
           </div>
         </div>
 
-        {/* ✅ Desktop nav links (centered) */}
+        {/* Desktop nav links (centered) */}
         <nav className="mt-3 hidden md:flex items-center justify-center gap-2">
           {!isAuthed ? (
             <>
