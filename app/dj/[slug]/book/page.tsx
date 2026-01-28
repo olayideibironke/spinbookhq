@@ -5,7 +5,7 @@ import crypto from "crypto";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
-export const runtime = "nodejs"; // ✅ IMPORTANT: avoid Edge runtime (Node crypto required)
+export const runtime = "nodejs"; // ✅ keep Node runtime
 
 type DjPublic = {
   user_id: string;
@@ -40,7 +40,6 @@ function parseGenres(raw: unknown): string[] {
 }
 
 function makeToken() {
-  // ✅ Node-stable token generator (server-safe)
   return crypto.randomBytes(32).toString("hex");
 }
 
@@ -146,6 +145,11 @@ async function sendEmailRequestReceived(args: {
   }
 }
 
+function isNextRedirectError(e: any) {
+  // Next redirect() throws an error with digest containing "NEXT_REDIRECT"
+  return typeof e?.digest === "string" && e.digest.includes("NEXT_REDIRECT");
+}
+
 export default async function DjBookingPage({
   params,
   searchParams,
@@ -193,21 +197,22 @@ export default async function DjBookingPage({
   async function submitBooking(formData: FormData) {
     "use server";
 
+    // ✅ Validation redirects must NOT be inside try/catch
+    const name = String(formData.get("name") ?? "").trim();
+    const email = String(formData.get("email") ?? "").trim();
+    const eventDate = String(formData.get("event_date") ?? "").trim();
+    const location = String(formData.get("location") ?? "").trim();
+    const message = String(formData.get("message") ?? "").trim();
+
+    if (!name || !email || !eventDate || !location) {
+      redirect(`/dj/${slug}/book?ok=0&reason=missing_fields`);
+    }
+
+    if (!isValidEmail(email)) {
+      redirect(`/dj/${slug}/book?ok=0&reason=bad_email`);
+    }
+
     try {
-      const name = String(formData.get("name") ?? "").trim();
-      const email = String(formData.get("email") ?? "").trim();
-      const eventDate = String(formData.get("event_date") ?? "").trim();
-      const location = String(formData.get("location") ?? "").trim();
-      const message = String(formData.get("message") ?? "").trim();
-
-      if (!name || !email || !eventDate || !location) {
-        redirect(`/dj/${slug}/book?ok=0&reason=missing_fields`);
-      }
-
-      if (!isValidEmail(email)) {
-        redirect(`/dj/${slug}/book?ok=0&reason=bad_email`);
-      }
-
       const sb = await createClient();
 
       const { data: djRow, error: djRowErr } = await sb
@@ -259,7 +264,7 @@ export default async function DjBookingPage({
       });
 
       if (sendRes.ok) {
-        // NOTE: only works if your DB has request_email_sent_at column
+        // Works only if this column exists; error is non-throwing anyway.
         await sb
           .from("booking_requests")
           .update({ request_email_sent_at: new Date().toISOString() })
@@ -270,6 +275,9 @@ export default async function DjBookingPage({
 
       redirect(`/dj/${slug}/book?ok=1`);
     } catch (e: any) {
+      // ✅ Let Next redirect() pass through
+      if (isNextRedirectError(e)) throw e;
+
       console.warn(
         "[SpinBookHQ] submitBooking exception:",
         String(e?.message ?? e),
@@ -296,7 +304,7 @@ export default async function DjBookingPage({
       : reason === "dj_not_found"
       ? "DJ profile lookup failed."
       : reason === "insert_failed"
-      ? "Could not create request (database insert failed)."
+      ? "Could not create request (database insert failed / RLS)."
       : reason === "server_exception"
       ? "Server error (check Vercel logs)."
       : reason
