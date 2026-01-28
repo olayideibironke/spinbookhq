@@ -55,9 +55,9 @@ export default async function DjBookingPage({
 
   if (djErr || !dj || dj.published !== true) {
     return (
-      <main className="p-6">
+      <main className="px-4 py-6 sm:px-6 sm:py-10">
         <div className="mx-auto w-full max-w-3xl">
-          <h1 className="text-3xl font-extrabold tracking-tight text-white">
+          <h1 className="text-3xl font-extrabold tracking-tight text-white sm:text-4xl">
             Request Booking
           </h1>
           <p className="mt-3 text-sm text-white/65">
@@ -133,7 +133,13 @@ export default async function DjBookingPage({
   const showError = ok === "0";
 
   return (
-    <main className="p-6">
+    <main
+      className={[
+        // Mobile-safe spacing: avoid iOS bottom bar + any floating button overlays
+        "px-4 py-6 sm:px-6 sm:py-10",
+        "pb-[calc(6rem+env(safe-area-inset-bottom))]",
+      ].join(" ")}
+    >
       <div className="mx-auto w-full max-w-4xl">
         {/* Top nav */}
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -151,7 +157,7 @@ export default async function DjBookingPage({
 
         {/* Header */}
         <div className="mt-7">
-          <h1 className="text-4xl font-extrabold tracking-tight text-white">
+          <h1 className="text-4xl font-extrabold tracking-tight text-white sm:text-5xl">
             Request Booking
           </h1>
 
@@ -161,7 +167,7 @@ export default async function DjBookingPage({
             {djCity ? <span className="text-white/55"> • {djCity}</span> : null}
           </p>
 
-          {/* ✅ Genre chips added here */}
+          {/* ✅ Genre chips */}
           {topGenres.length > 0 ? (
             <div className="mt-4">
               <p className="text-xs font-extrabold tracking-[0.18em] text-white/55">
@@ -187,7 +193,7 @@ export default async function DjBookingPage({
         </div>
 
         {/* How it works */}
-        <section className="mt-6 rounded-3xl border border-white/10 bg-white/[0.04] p-6 shadow-[0_18px_60px_rgba(0,0,0,0.55)] backdrop-blur">
+        <section className="mt-6 rounded-3xl border border-white/10 bg-white/[0.04] p-5 shadow-[0_18px_60px_rgba(0,0,0,0.55)] backdrop-blur sm:p-6">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <p className="text-base font-extrabold text-white">
@@ -253,7 +259,7 @@ export default async function DjBookingPage({
 
         {/* Form card (hide after success) */}
         {!showSuccess && (
-          <section className="mt-6 rounded-3xl border border-white/10 bg-white/[0.04] p-7 shadow-[0_18px_60px_rgba(0,0,0,0.55)] backdrop-blur">
+          <section className="mt-6 rounded-3xl border border-white/10 bg-white/[0.04] p-5 shadow-[0_18px_60px_rgba(0,0,0,0.55)] backdrop-blur sm:p-7">
             <form action={submitBooking} className="space-y-6">
               <div>
                 <label className="block text-sm font-semibold text-white/85">
@@ -264,7 +270,8 @@ export default async function DjBookingPage({
                     name="name"
                     placeholder="John Doe"
                     required
-                    className="w-full rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white/90 placeholder:text-white/35 shadow-[0_0_0_1px_rgba(255,255,255,0.03)] outline-none focus:ring-2 focus:ring-violet-400/40"
+                    // ✅ Mobile UX: 16px text prevents iOS zoom
+                    className="w-full rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-base text-white/90 placeholder:text-white/35 shadow-[0_0_0_1px_rgba(255,255,255,0.03)] outline-none focus:ring-2 focus:ring-violet-400/40 sm:text-sm"
                   />
                 </div>
               </div>
@@ -279,7 +286,7 @@ export default async function DjBookingPage({
                     name="email"
                     placeholder="you@email.com"
                     required
-                    className="w-full rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white/90 placeholder:text-white/35 shadow-[0_0_0_1px_rgba(255,255,255,0.03)] outline-none focus:ring-2 focus:ring-violet-400/40"
+                    className="w-full rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-base text-white/90 placeholder:text-white/35 shadow-[0_0_0_1px_rgba(255,255,255,0.03)] outline-none focus:ring-2 focus:ring-violet-400/40 sm:text-sm"
                   />
                 </div>
                 <p className="mt-2 text-xs text-white/55">
@@ -297,7 +304,7 @@ export default async function DjBookingPage({
                       type="date"
                       name="event_date"
                       required
-                      className="w-full rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white/90 shadow-[0_0_0_1px_rgba(255,255,255,0.03)] outline-none focus:ring-2 focus:ring-violet-400/40"
+                      className="w-full rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-base text-white/90 shadow-[0_0_0_1px_rgba(255,255,255,0.03)] outline-none focus:ring-2 focus:ring-violet-400/40 sm:text-sm"
                     />
                   </div>
                   <p className="mt-2 text-xs text-white/55">
@@ -314,7 +321,7 @@ export default async function DjBookingPage({
                       name="location"
                       placeholder="City / State"
                       required
-                      className="w-full rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white/90 placeholder:text-white/35 shadow-[0_0_0_1px_rgba(255,255,255,0.03)] outline-none focus:ring-2 focus:ring-violet-400/40"
+                      className="w-full rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-base text-white/90 placeholder:text-white/35 shadow-[0_0_0_1px_rgba(255,255,255,0.03)] outline-none focus:ring-2 focus:ring-violet-400/40 sm:text-sm"
                     />
                   </div>
                   <p className="mt-2 text-xs text-white/55">
@@ -332,7 +339,7 @@ export default async function DjBookingPage({
                     name="message"
                     rows={6}
                     placeholder="Event type, venue, start time, set length, music style, equipment needs, etc."
-                    className="w-full rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white/90 placeholder:text-white/35 shadow-[0_0_0_1px_rgba(255,255,255,0.03)] outline-none focus:ring-2 focus:ring-violet-400/40"
+                    className="w-full rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-base text-white/90 placeholder:text-white/35 shadow-[0_0_0_1px_rgba(255,255,255,0.03)] outline-none focus:ring-2 focus:ring-violet-400/40 sm:text-sm"
                   />
                 </div>
 

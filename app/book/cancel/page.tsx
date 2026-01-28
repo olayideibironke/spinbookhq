@@ -47,7 +47,14 @@ export default async function BookingCancelPage({
   const DEPOSIT_DJ = 120;
 
   return (
-    <main className="relative min-h-[calc(100vh-64px)] px-6 py-10">
+    <main
+      className={[
+        "relative",
+        "min-h-[calc(100svh-64px)]",
+        "px-4 py-8 sm:px-6 sm:py-10",
+        "pb-[calc(6rem+env(safe-area-inset-bottom))]",
+      ].join(" ")}
+    >
       {/* Ambient glow */}
       <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
         <div className="absolute -top-24 left-1/2 h-64 w-[42rem] -translate-x-1/2 rounded-full bg-white/10 blur-3xl" />
@@ -55,7 +62,7 @@ export default async function BookingCancelPage({
         <div className="absolute bottom-10 right-10 h-56 w-80 rounded-full bg-white/5 blur-3xl" />
       </div>
 
-      <div className="relative mx-auto w-full max-w-2xl py-10">
+      <div className="relative mx-auto w-full max-w-2xl py-6 sm:py-10">
         <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-6 shadow-[0_10px_40px_rgba(0,0,0,0.35)] backdrop-blur-xl sm:p-8">
           <div className="flex items-start justify-between gap-4">
             <div>
@@ -79,17 +86,26 @@ export default async function BookingCancelPage({
           <div className="mt-7 rounded-3xl border border-white/10 bg-black/20 p-5 sm:p-6">
             <p className="text-sm font-extrabold text-white">Deposit reminder</p>
             <p className="mt-3 text-sm text-white/65">
-              To book a DJ, you must pay a <span className="font-extrabold text-white">{formatUsd(DEPOSIT_TOTAL)}</span>{" "}
+              To book a DJ, you must pay a{" "}
+              <span className="font-extrabold text-white">
+                {formatUsd(DEPOSIT_TOTAL)}
+              </span>{" "}
               non-refundable deposit (split:{" "}
-              <span className="font-extrabold text-white">{formatUsd(DEPOSIT_SPINBOOK)}</span>{" "}
+              <span className="font-extrabold text-white">
+                {formatUsd(DEPOSIT_SPINBOOK)}
+              </span>{" "}
               SpinBook HQ +{" "}
-              <span className="font-extrabold text-white">{formatUsd(DEPOSIT_DJ)}</span>{" "}
+              <span className="font-extrabold text-white">
+                {formatUsd(DEPOSIT_DJ)}
+              </span>{" "}
               DJ).
             </p>
             <p className="mt-3 text-xs text-white/55">
-              Policy: If you do <span className="font-extrabold text-white">NOT</span> pay the full remaining balance to
-              the DJ <span className="font-extrabold text-white">7 days</span> before the event, the deposit is forfeited
-              and the DJ may cancel.
+              Policy: If you do{" "}
+              <span className="font-extrabold text-white">NOT</span> pay the full
+              remaining balance to the DJ{" "}
+              <span className="font-extrabold text-white">7 days</span> before
+              the event, the deposit is forfeited and the DJ may cancel.
             </p>
           </div>
 
@@ -107,7 +123,8 @@ export default async function BookingCancelPage({
                   </span>
                 </div>
                 <p className="mt-4 text-sm text-white/65">
-                  You can return to the DJ profile and try again when you’re ready.
+                  You can return to the DJ profile and try again when you’re
+                  ready.
                 </p>
               </>
             ) : (

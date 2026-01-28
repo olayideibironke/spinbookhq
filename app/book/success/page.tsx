@@ -80,7 +80,16 @@ export default async function BookingSuccessPage({
       : null;
 
   return (
-    <main className="relative min-h-[calc(100vh-64px)] px-6 py-10">
+    <main
+      className={[
+        "relative",
+        // ✅ Mobile-safe viewport sizing (iOS Safari)
+        "min-h-[calc(100svh-64px)]",
+        "px-4 py-8 sm:px-6 sm:py-10",
+        // ✅ Safe-area bottom padding
+        "pb-[calc(6rem+env(safe-area-inset-bottom))]",
+      ].join(" ")}
+    >
       {/* Ambient glow */}
       <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
         <div className="absolute -top-24 left-1/2 h-64 w-[44rem] -translate-x-1/2 rounded-full bg-white/10 blur-3xl" />
@@ -88,7 +97,7 @@ export default async function BookingSuccessPage({
         <div className="absolute bottom-12 right-10 h-56 w-80 rounded-full bg-white/5 blur-3xl" />
       </div>
 
-      <div className="relative mx-auto w-full max-w-2xl py-10">
+      <div className="relative mx-auto w-full max-w-2xl py-6 sm:py-10">
         <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-6 shadow-[0_10px_40px_rgba(0,0,0,0.35)] backdrop-blur-xl sm:p-8">
           <div className="flex items-start justify-between gap-4">
             <div>
@@ -172,7 +181,7 @@ export default async function BookingSuccessPage({
                     <p className="text-xs font-extrabold tracking-[0.18em] text-white/55">
                       {label}
                     </p>
-                    <p className="mt-2 text-sm font-semibold text-white break-all">
+                    <p className="mt-2 break-all text-sm font-semibold text-white">
                       {value}
                     </p>
                   </div>
