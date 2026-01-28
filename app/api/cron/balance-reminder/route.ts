@@ -42,8 +42,33 @@ function getSupabaseAdmin() {
   return createClient(url, serviceKey, { auth: { persistSession: false } });
 }
 
+async function getAuthEmailByUserId(
+  sb: ReturnType<typeof getSupabaseAdmin>,
+  userId: string
+) {
+  const uid = String(userId ?? "").trim();
+  if (!uid) return null;
+
+  try {
+    const { data, error } = await sb.auth.admin.getUserById(uid);
+    if (error) {
+      console.warn("[SpinBookHQ] auth.admin.getUserById error:", error.message);
+      return null;
+    }
+    const email = String(data?.user?.email ?? "").trim();
+    return email || null;
+  } catch (e: any) {
+    console.warn(
+      "[SpinBookHQ] auth.admin.getUserById exception:",
+      String(e?.message ?? e)
+    );
+    return null;
+  }
+}
+
 async function sendEmailBalanceReminder(args: {
   to: string;
+  recipientType: "requester" | "dj";
   requesterName: string;
   djName: string;
   eventDate: string;
@@ -56,16 +81,19 @@ async function sendEmailBalanceReminder(args: {
   const from = process.env.RESEND_FROM_EMAIL;
 
   if (!apiKey || !from) {
-    console.warn(
-      "[SpinBookHQ] Resend env missing: set RESEND_API_KEY and RESEND_FROM_EMAIL to enable reminder emails."
-    );
-    return;
+    const msg =
+      "Resend env missing: set RESEND_API_KEY and RESEND_FROM_EMAIL to enable reminder emails.";
+    console.warn("[SpinBookHQ]", msg);
+    return { ok: false as const, error: msg };
   }
 
   const origin = buildOrigin();
   const statusUrl = `${origin}/r/${encodeURIComponent(args.publicToken)}`;
 
-  const subject = `Reminder: balance due in 7 days for your DJ booking`;
+  const subject =
+    args.recipientType === "dj"
+      ? `Reminder: client balance due in 7 days (booking ${args.bookingId})`
+      : `Reminder: balance due in 7 days for your DJ booking`;
 
   const quotedLine =
     args.quotedTotal != null && Number.isFinite(Number(args.quotedTotal))
@@ -74,15 +102,32 @@ async function sendEmailBalanceReminder(args: {
         )}</div>`
       : "";
 
+  const intro =
+    args.recipientType === "dj"
+      ? `
+        <p style="margin:0 0 12px 0;">
+          Hello,<br/>
+          This is a reminder that the event for <strong>${escapeHtml(
+            args.requesterName || "your client"
+          )}</strong> is in <strong>7 days</strong>.
+          Please ensure the remaining balance is collected before the deadline.
+        </p>
+      `
+      : `
+        <p style="margin:0 0 12px 0;">
+          Hi ${escapeHtml(args.requesterName || "there")},<br/>
+          Your event with <strong>${escapeHtml(
+            args.djName
+          )}</strong> is in <strong>7 days</strong>.
+          Please pay the <strong>remaining balance</strong> directly to the DJ before the deadline.
+        </p>
+      `;
+
   const html = `
   <div style="font-family:ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; line-height:1.5; color:#0b0b0f;">
     <h2 style="margin:0 0 12px 0;">Balance reminder ⏳</h2>
 
-    <p style="margin:0 0 12px 0;">
-      Hi ${escapeHtml(args.requesterName || "there")},<br/>
-      Your event with <strong>${escapeHtml(args.djName)}</strong> is in <strong>7 days</strong>.
-      Please pay the <strong>remaining balance</strong> directly to the DJ before the deadline.
-    </p>
+    ${intro}
 
     <div style="border:1px solid #e6e6ef; border-radius:14px; padding:14px; background:#fafafe; margin:14px 0;">
       <div><strong>Booking reference:</strong> ${escapeHtml(args.bookingId)}</div>
@@ -92,12 +137,12 @@ async function sendEmailBalanceReminder(args: {
     </div>
 
     <p style="margin:0 0 12px 0;">
-      Track your booking status here:<br/>
+      Track booking status here:<br/>
       <a href="${escapeAttr(statusUrl)}">${escapeHtml(statusUrl)}</a>
     </p>
 
     <p style="margin:14px 0 0 0; font-size:12px; color:#4b5563;">
-      Policy: If you do <strong>NOT</strong> pay the full balance to the DJ <strong>7 days before the event</strong>,
+      Policy: If the client does <strong>NOT</strong> pay the full balance to the DJ <strong>7 days before the event</strong>,
       the deposit is forfeited and the DJ may cancel.
     </p>
 
@@ -108,23 +153,33 @@ async function sendEmailBalanceReminder(args: {
   </div>
   `;
 
-  const res = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from,
-      to: args.to,
-      subject,
-      html,
-    }),
-  });
+  try {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from,
+        to: args.to,
+        bcc: ["spinbookhq@gmail.com"], // ✅ compulsory company visibility
+        subject,
+        html,
+      }),
+    });
 
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    console.warn("[SpinBookHQ] Resend send failed:", res.status, text);
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      console.warn("[SpinBookHQ] Resend send failed:", res.status, text);
+      return { ok: false as const, error: `Resend ${res.status}: ${text}` };
+    }
+
+    return { ok: true as const };
+  } catch (e: any) {
+    const msg = String(e?.message ?? e ?? "Unknown fetch error");
+    console.warn("[SpinBookHQ] Resend exception:", msg);
+    return { ok: false as const, error: msg };
   }
 }
 
@@ -178,13 +233,16 @@ export async function GET(req: Request) {
   }
 
   let sent = 0;
+  let attempted = 0;
 
   for (const r of rows ?? []) {
-    const to = String(r.requester_email ?? "").trim();
-    if (!to) continue;
+    const requesterTo = String(r.requester_email ?? "").trim();
+    if (!requesterTo) continue;
 
     const publicToken = String(r.public_token ?? "").trim();
     if (!publicToken) continue;
+
+    attempted += 1;
 
     // DJ name
     let djName = "DJ";
@@ -197,8 +255,13 @@ export async function GET(req: Request) {
       djName = String(djProfile?.stage_name ?? "DJ").trim();
     }
 
-    await sendEmailBalanceReminder({
-      to,
+    // DJ email (auth)
+    const djEmail = r.dj_user_id ? await getAuthEmailByUserId(sb, r.dj_user_id) : null;
+
+    // Send requester
+    const requesterRes = await sendEmailBalanceReminder({
+      to: requesterTo,
+      recipientType: "requester",
       requesterName: String(r.requester_name ?? "").trim(),
       djName,
       eventDate: String(r.event_date ?? "").trim(),
@@ -208,13 +271,45 @@ export async function GET(req: Request) {
       bookingId: String(r.id),
     });
 
-    await sb
-      .from("booking_requests")
-      .update({ balance_reminder_sent_at: new Date().toISOString() })
-      .eq("id", r.id);
+    // Send DJ (optional if email exists)
+    let djResOk = true;
+    if (djEmail) {
+      const djRes = await sendEmailBalanceReminder({
+        to: djEmail,
+        recipientType: "dj",
+        requesterName: String(r.requester_name ?? "").trim(),
+        djName,
+        eventDate: String(r.event_date ?? "").trim(),
+        eventLocation: String(r.event_location ?? "").trim(),
+        quotedTotal: r.quoted_total ?? null,
+        publicToken,
+        bookingId: String(r.id),
+      });
+      djResOk = djRes.ok;
+    }
 
-    sent += 1;
+    const requesterOk = requesterRes.ok;
+
+    // Only mark sent when requester email succeeded AND DJ email succeeded (if attempted)
+    if (requesterOk && djResOk) {
+      await sb
+        .from("booking_requests")
+        .update({ balance_reminder_sent_at: new Date().toISOString() })
+        .eq("id", r.id);
+
+      sent += 1;
+    } else {
+      console.warn("[SpinBookHQ] Reminder email not fully sent:", {
+        id: r.id,
+        requesterOk,
+        djResOk,
+      });
+      // ✅ Do NOT mark sent_at, so cron can retry next run.
+    }
   }
 
-  return NextResponse.json({ ok: true, target: targetStr, sent }, { status: 200 });
+  return NextResponse.json(
+    { ok: true, target: targetStr, attempted, sent },
+    { status: 200 }
+  );
 }
