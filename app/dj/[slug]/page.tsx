@@ -48,10 +48,7 @@ function pickLocation(profile: any) {
     null;
 
   const country =
-    profile?.country ??
-    profile?.nation ??
-    profile?.base_country ??
-    null;
+    profile?.country ?? profile?.nation ?? profile?.base_country ?? null;
 
   const parts = [city, region, country]
     .map((v) => (typeof v === "string" ? v.trim() : v))
@@ -61,7 +58,8 @@ function pickLocation(profile: any) {
     // Deduplicate in case someone stored same value twice
     const unique: string[] = [];
     for (const p of parts) {
-      if (!unique.some((u) => u.toLowerCase() === p.toLowerCase())) unique.push(p);
+      if (!unique.some((u) => u.toLowerCase() === p.toLowerCase()))
+        unique.push(p);
     }
     return unique.join(" • ");
   }
@@ -83,7 +81,17 @@ function pickGenres(profile: any) {
           .map((s) => s.trim())
           .filter(Boolean)
       : [];
-  return genres;
+  // Deduplicate and normalize
+  const seen = new Set<string>();
+  const clean: string[] = [];
+  for (const g of genres) {
+    const key = String(g).trim().toLowerCase();
+    if (!key) continue;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    clean.push(String(g).trim());
+  }
+  return clean;
 }
 
 function pickStartingPrice(profile: any) {
@@ -220,11 +228,13 @@ export default async function DjPublicProfilePage({
   const startingPrice = pickStartingPrice(profile);
   const priceLabel = startingPrice ? `From ${formatUsd(startingPrice)}` : null;
 
+  const topGenres = genres.slice(0, 6);
+
   return (
     <main className="mx-auto max-w-6xl px-6 py-10">
       {/* Top hero card */}
       <section className="relative rounded-3xl border border-white/10 bg-white/[0.04] p-7 shadow-[0_18px_60px_rgba(0,0,0,0.55)] backdrop-blur">
-        {/* ✅ Top-right price pill */}
+        {/* Top-right price pill */}
         {priceLabel ? (
           <div className="absolute right-6 top-6">
             <span className="inline-flex items-center rounded-full border border-white/10 bg-black/30 px-3 py-1 text-xs font-extrabold text-white/85 shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur">
@@ -255,43 +265,51 @@ export default async function DjPublicProfilePage({
 
             <p className="mt-2 text-sm text-white/60">@{slug}</p>
 
-            {(location || genres.length > 0) && (
-              <div className="mt-5 flex flex-wrap gap-2 text-sm">
-                {/* ✅ Location as a dedicated pill (global-ready) */}
-                {location && (
-                  <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-white/70">
-                    <svg
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      aria-hidden="true"
-                      className="h-4 w-4 text-white/60"
+            {/* ✅ PROMINENT GENRES (moved up, more visible) */}
+            {topGenres.length > 0 ? (
+              <div className="mt-5">
+                <p className="text-xs font-extrabold tracking-[0.18em] text-white/55">
+                  GENRES
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {topGenres.map((g: string) => (
+                    <span
+                      key={g}
+                      className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-sm font-semibold text-white/80"
                     >
-                      <path
-                        d="M12 21s-7-4.35-7-11a7 7 0 1 1 14 0c0 6.65-7 11-7 11Z"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                      />
-                      <path
-                        d="M12 10.5a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                        opacity="0.9"
-                      />
-                    </svg>
-                    {location}
-                  </span>
-                )}
-
-                {genres.slice(0, 6).map((g: string) => (
-                  <span
-                    key={g}
-                    className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-white/70"
-                  >
-                    {g}
-                  </span>
-                ))}
+                      {g}
+                    </span>
+                  ))}
+                </div>
               </div>
-            )}
+            ) : null}
+
+            {/* Location pill */}
+            {location ? (
+              <div className="mt-5 flex flex-wrap gap-2 text-sm">
+                <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-white/70">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    aria-hidden="true"
+                    className="h-4 w-4 text-white/60"
+                  >
+                    <path
+                      d="M12 21s-7-4.35-7-11a7 7 0 1 1 14 0c0 6.65-7 11-7 11Z"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                    />
+                    <path
+                      d="M12 10.5a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      opacity="0.9"
+                    />
+                  </svg>
+                  {location}
+                </span>
+              </div>
+            ) : null}
 
             {/* Trust chips (conversion) */}
             <div className="mt-6 flex flex-wrap gap-2">
@@ -332,9 +350,7 @@ export default async function DjPublicProfilePage({
               </a>
             </div>
 
-            <p className="text-xs text-white/55">
-              Typical response: within 24–48 hrs
-            </p>
+            <p className="text-xs text-white/55">Typical response: within 24–48 hrs</p>
 
             {!published && visibility.isOwner ? (
               <p className="mt-1 text-xs text-white/55">
@@ -351,23 +367,17 @@ export default async function DjPublicProfilePage({
         <div className="mt-6 grid gap-3 sm:grid-cols-3">
           <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
             <p className="text-xs font-semibold text-white/70">Booking flow</p>
-            <p className="mt-1 text-sm text-white/80">
-              Request → accept → deposit
-            </p>
+            <p className="mt-1 text-sm text-white/80">Request → accept → deposit</p>
           </div>
 
           <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
             <p className="text-xs font-semibold text-white/70">Deposits</p>
-            <p className="mt-1 text-sm text-white/80">
-              Secure checkout via Stripe
-            </p>
+            <p className="mt-1 text-sm text-white/80">Secure checkout via Stripe</p>
           </div>
 
           <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
             <p className="text-xs font-semibold text-white/70">Confidence</p>
-            <p className="mt-1 text-sm text-white/80">
-              Clear profile + booking request
-            </p>
+            <p className="mt-1 text-sm text-white/80">Clear profile + booking request</p>
           </div>
         </div>
       </section>
@@ -377,9 +387,7 @@ export default async function DjPublicProfilePage({
         id="about"
         className="mt-6 rounded-3xl border border-white/10 bg-white/[0.04] p-7 shadow-[0_18px_60px_rgba(0,0,0,0.55)] backdrop-blur"
       >
-        <h2 className="text-xl font-extrabold tracking-tight text-white">
-          About
-        </h2>
+        <h2 className="text-xl font-extrabold tracking-tight text-white">About</h2>
 
         {bio ? (
           <p className="mt-4 whitespace-pre-wrap leading-relaxed text-white/75">
@@ -387,8 +395,7 @@ export default async function DjPublicProfilePage({
           </p>
         ) : (
           <p className="mt-4 text-sm text-white/60">
-            This DJ hasn’t added a bio yet — send a booking request to get
-            details.
+            This DJ hasn’t added a bio yet. Send a booking request to get details.
           </p>
         )}
       </section>
