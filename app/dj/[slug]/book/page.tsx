@@ -1,11 +1,9 @@
+// FILE: app/dj/[slug]/book/page.tsx
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { buildPublicRequestUrl, requestSentEmail, sendEmail } from "@/lib/email";
 
 export const dynamic = "force-dynamic";
-
-const COMPANY_BCC = "spinbookhq@gmail.com";
 
 type DjPublic = {
   user_id: string;
@@ -15,6 +13,8 @@ type DjPublic = {
   published: boolean | null;
   genres?: unknown;
 };
+
+const COMPANY_BCC = "spinbookhq@gmail.com";
 
 function isValidEmail(email: string) {
   const e = email.trim();
@@ -44,6 +44,108 @@ function makeToken() {
   return Array.from(bytes)
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
+}
+
+function buildOrigin() {
+  return (
+    process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ||
+    "http://localhost:3000"
+  );
+}
+
+function escapeHtml(input: string) {
+  return String(input ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function escapeAttr(input: string) {
+  return escapeHtml(input).replaceAll("`", "&#96;");
+}
+
+async function sendEmailRequestReceived(args: {
+  to: string;
+  requesterName: string;
+  djName: string;
+  bookingId: string;
+  publicToken: string;
+  eventDate: string;
+  eventLocation: string;
+}) {
+  const apiKey = process.env.RESEND_API_KEY;
+  const from = process.env.RESEND_FROM_EMAIL;
+
+  if (!apiKey || !from) {
+    const msg =
+      "Missing RESEND_API_KEY or RESEND_FROM_EMAIL (Vercel Production env).";
+    console.warn("[SpinBookHQ] Email #1 not sent:", msg);
+    return { ok: false as const, error: msg };
+  }
+
+  const origin = buildOrigin();
+  const statusUrl = `${origin}/r/${encodeURIComponent(args.publicToken)}`;
+
+  const subject = `Request received — ${args.djName} will respond soon`;
+
+  const html = `
+  <div style="font-family:ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; line-height:1.5; color:#0b0b0f;">
+    <h2 style="margin:0 0 12px 0;">Request received ✅</h2>
+
+    <p style="margin:0 0 12px 0;">
+      Hi ${escapeHtml(args.requesterName || "there")},<br/>
+      We’ve received your booking request for <strong>${escapeHtml(
+        args.djName
+      )}</strong>.
+      The DJ will review your details and respond soon.
+    </p>
+
+    <div style="border:1px solid #e6e6ef; border-radius:14px; padding:14px; background:#fafafe; margin:14px 0;">
+      <div><strong>Booking reference:</strong> ${escapeHtml(args.bookingId)}</div>
+      <div><strong>Event date:</strong> ${escapeHtml(args.eventDate)}</div>
+      <div><strong>Location:</strong> ${escapeHtml(args.eventLocation)}</div>
+      <div style="margin-top:10px;">
+        <strong>Track your request:</strong><br/>
+        <a href="${escapeAttr(statusUrl)}">${escapeHtml(statusUrl)}</a>
+      </div>
+    </div>
+
+    <p style="margin:0; font-size:12px; color:#6b7280;">
+      SpinBook HQ • Secure bookings for premium DJs
+    </p>
+  </div>
+  `;
+
+  try {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from,
+        to: args.to,
+        bcc: [COMPANY_BCC], // ✅ compulsory company visibility
+        subject,
+        html,
+      }),
+    });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      console.warn("[SpinBookHQ] Resend send failed:", res.status, text);
+      return { ok: false as const, error: `Resend ${res.status}: ${text}` };
+    }
+
+    return { ok: true as const };
+  } catch (e: any) {
+    const msg = String(e?.message ?? e ?? "Unknown fetch error");
+    console.warn("[SpinBookHQ] Resend exception:", msg);
+    return { ok: false as const, error: msg };
+  }
 }
 
 export default async function DjBookingPage({
@@ -140,32 +242,28 @@ export default async function DjBookingPage({
       .maybeSingle<{ id: string; public_token: string | null }>();
 
     if (insertErr || !inserted?.id || !inserted.public_token) {
+      console.warn("[SpinBookHQ] booking_requests insert failed:", insertErr);
       redirect(`/dj/${slug}/book?ok=0`);
     }
 
-    // Email #1 — Request sent (BCC SpinBook HQ for company visibility)
-    try {
-      const tokenUrl = buildPublicRequestUrl(inserted.public_token);
+    // ✅ Email #1 — Request received (only mark sent if success)
+    const sendRes = await sendEmailRequestReceived({
+      to: email,
+      requesterName: name,
+      djName: djRow.stage_name ?? "DJ",
+      bookingId: inserted.id,
+      publicToken: inserted.public_token,
+      eventDate,
+      eventLocation: location,
+    });
 
-      const payload: any = requestSentEmail({
-        to: email,
-        djName: djRow.stage_name ?? "DJ",
-        eventDate,
-        eventLocation: location,
-        tokenUrl,
-      });
-
-      // ✅ professional: company visibility / audit trail
-      payload.bcc = [COMPANY_BCC];
-
-      await sendEmail(payload);
-
+    if (sendRes.ok) {
       await sb
         .from("booking_requests")
         .update({ request_email_sent_at: new Date().toISOString() })
         .eq("id", inserted.id);
-    } catch {
-      // Non-blocking: request still created successfully
+    } else {
+      console.warn("[SpinBookHQ] Email #1 failed (no sent_at set):", sendRes);
     }
 
     redirect(`/dj/${slug}/book?ok=1`);
