@@ -51,8 +51,28 @@ function getSupabaseAdmin() {
   });
 }
 
+async function getAuthEmailByUserId(sb: ReturnType<typeof getSupabaseAdmin>, userId: string) {
+  const uid = String(userId ?? "").trim();
+  if (!uid) return null;
+
+  try {
+    // Requires service role key
+    const { data, error } = await sb.auth.admin.getUserById(uid);
+    if (error) {
+      console.warn("[SpinBookHQ] auth.admin.getUserById error:", error.message);
+      return null;
+    }
+    const email = String(data?.user?.email ?? "").trim();
+    return email || null;
+  } catch (e: any) {
+    console.warn("[SpinBookHQ] auth.admin.getUserById exception:", String(e?.message ?? e));
+    return null;
+  }
+}
+
 async function sendEmailDepositReceived(args: {
   to: string;
+  recipientType: "requester" | "dj";
   requesterName: string;
   djName: string;
   eventDate: string;
@@ -69,13 +89,16 @@ async function sendEmailDepositReceived(args: {
     console.warn(
       "[SpinBookHQ] Resend env missing: set RESEND_API_KEY and RESEND_FROM_EMAIL to enable deposit-received emails."
     );
-    return;
+    return { ok: false as const, error: "Missing RESEND_API_KEY or RESEND_FROM_EMAIL" };
   }
 
   const origin = buildOrigin();
   const statusUrl = `${origin}/r/${encodeURIComponent(args.publicToken)}`;
 
-  const subject = `Deposit received — your DJ is locked in ✅`;
+  const subject =
+    args.recipientType === "dj"
+      ? `Deposit received — booking confirmed ✅`
+      : `Deposit received — your DJ is locked in ✅`;
 
   const quotedLine =
     args.quotedTotal != null && Number.isFinite(Number(args.quotedTotal))
@@ -84,15 +107,23 @@ async function sendEmailDepositReceived(args: {
         )}</div>`
       : "";
 
+  const introLine =
+    args.recipientType === "dj"
+      ? `<p style="margin:0 0 12px 0;">
+           Hello,<br/>
+           A client has paid the <strong>${formatUsd(200)}</strong> deposit. The booking is now <strong>confirmed</strong>.
+         </p>`
+      : `<p style="margin:0 0 12px 0;">
+           Hi ${escapeHtml(args.requesterName || "there")},<br/>
+           We’ve received your <strong>${formatUsd(200)}</strong> deposit. Your booking request is now <strong>confirmed</strong> with
+           <strong>${escapeHtml(args.djName)}</strong>.
+         </p>`;
+
   const html = `
   <div style="font-family:ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; line-height:1.5; color:#0b0b0f;">
     <h2 style="margin:0 0 12px 0;">Deposit received ✅</h2>
 
-    <p style="margin:0 0 12px 0;">
-      Hi ${escapeHtml(args.requesterName || "there")},<br/>
-      We’ve received your <strong>${formatUsd(200)}</strong> deposit. Your booking request is now <strong>confirmed</strong> with
-      <strong>${escapeHtml(args.djName)}</strong>.
-    </p>
+    ${introLine}
 
     <div style="border:1px solid #e6e6ef; border-radius:14px; padding:14px; background:#fafafe; margin:14px 0;">
       <div><strong>Booking reference:</strong> ${escapeHtml(args.bookingId)}</div>
@@ -103,12 +134,12 @@ async function sendEmailDepositReceived(args: {
     </div>
 
     <p style="margin:0 0 12px 0;">
-      Track your booking status anytime (no account required):<br/>
+      Track this booking anytime:<br/>
       <a href="${escapeAttr(statusUrl)}">${escapeHtml(statusUrl)}</a>
     </p>
 
     <p style="margin:14px 0 0 0; font-size:12px; color:#4b5563;">
-      Reminder: Please pay the remaining balance to the DJ <strong>7 days before the event</strong>. If not paid, the deposit is forfeited and the DJ may cancel.
+      Reminder: The remaining balance must be paid to the DJ <strong>7 days before the event</strong>. If not paid, the deposit is forfeited and the DJ may cancel.
     </p>
 
     <hr style="border:none; border-top:1px solid #e6e6ef; margin:16px 0;" />
@@ -118,23 +149,33 @@ async function sendEmailDepositReceived(args: {
   </div>
   `;
 
-  const res = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from,
-      to: args.to,
-      subject,
-      html,
-    }),
-  });
+  try {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from,
+        to: args.to,
+        bcc: ["spinbookhq@gmail.com"], // ✅ compulsory company visibility
+        subject,
+        html,
+      }),
+    });
 
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    console.warn("[SpinBookHQ] Resend send failed:", res.status, text);
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      console.warn("[SpinBookHQ] Resend send failed:", res.status, text);
+      return { ok: false as const, error: `Resend ${res.status}: ${text}` };
+    }
+
+    return { ok: true as const };
+  } catch (e: any) {
+    const msg = String(e?.message ?? e ?? "Unknown fetch error");
+    console.warn("[SpinBookHQ] Resend exception:", msg);
+    return { ok: false as const, error: msg };
   }
 }
 
@@ -198,7 +239,7 @@ export async function POST(req: Request) {
   const { data: reqRow, error: reqErr } = await sb
     .from("booking_requests")
     .select(
-      "id, requester_email, requester_name, event_date, event_location, quoted_total, deposit_paid, public_token, dj_user_id, stripe_checkout_session_id"
+      "id, requester_email, requester_name, event_date, event_location, quoted_total, deposit_paid, deposit_paid_at, public_token, dj_user_id, stripe_checkout_session_id, deposit_email_sent_at"
     )
     .eq("id", bookingId)
     .maybeSingle<{
@@ -209,9 +250,11 @@ export async function POST(req: Request) {
       event_location: string;
       quoted_total: number | null;
       deposit_paid: boolean | null;
+      deposit_paid_at: string | null;
       public_token: string | null;
       dj_user_id: string;
       stripe_checkout_session_id: string | null;
+      deposit_email_sent_at: string | null;
     }>();
 
   if (reqErr || !reqRow) {
@@ -219,10 +262,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ received: true }, { status: 200 });
   }
 
-  // Idempotency: if already marked paid, do nothing (prevents duplicate emails)
-  if (reqRow.deposit_paid === true) {
-    return NextResponse.json({ received: true }, { status: 200 });
-  }
+  // If already marked paid, still proceed to email idempotently (in case older runs updated paid but email failed).
+  const alreadyPaid = reqRow.deposit_paid === true;
 
   // Ensure public token exists for public tracking (non-registered user flow)
   let publicToken = String(reqRow.public_token ?? "").trim();
@@ -233,17 +274,32 @@ export async function POST(req: Request) {
   // Update DB: deposit_paid + time + session id + token
   const nowIso = new Date().toISOString();
 
-  await sb
-    .from("booking_requests")
-    .update({
-      deposit_paid: true,
-      deposit_paid_at: nowIso,
-      public_token: publicToken,
-      stripe_checkout_session_id: reqRow.stripe_checkout_session_id ?? session.id,
-    })
-    .eq("id", bookingId);
+  if (!alreadyPaid) {
+    await sb
+      .from("booking_requests")
+      .update({
+        deposit_paid: true,
+        deposit_paid_at: nowIso,
+        public_token: publicToken,
+        stripe_checkout_session_id: reqRow.stripe_checkout_session_id ?? session.id,
+      })
+      .eq("id", bookingId);
+  } else {
+    // Still ensure token exists
+    if (!reqRow.public_token) {
+      await sb
+        .from("booking_requests")
+        .update({ public_token: publicToken })
+        .eq("id", bookingId);
+    }
+  }
 
-  // Lookup DJ name for email
+  // Idempotency for Email #4: if already sent, stop here.
+  if (reqRow.deposit_email_sent_at) {
+    return NextResponse.json({ received: true }, { status: 200 });
+  }
+
+  // Lookup DJ name + DJ email
   let djName = "DJ";
   if (reqRow.dj_user_id) {
     const { data: djProfile } = await sb
@@ -255,11 +311,18 @@ export async function POST(req: Request) {
     djName = String(djProfile?.stage_name ?? "DJ").trim();
   }
 
-  // Email #3: deposit received
-  const to = String(reqRow.requester_email ?? "").trim();
-  if (to) {
-    await sendEmailDepositReceived({
-      to,
+  const djEmail = await getAuthEmailByUserId(sb, reqRow.dj_user_id);
+
+  // Email #4: deposit received → requester AND DJ (+ BCC SpinBook HQ)
+  const requesterTo = String(reqRow.requester_email ?? "").trim();
+
+  const sendResults: Array<{ ok: boolean; who: "requester" | "dj"; error?: string }> =
+    [];
+
+  if (requesterTo) {
+    const res = await sendEmailDepositReceived({
+      to: requesterTo,
+      recipientType: "requester",
       requesterName: String(reqRow.requester_name ?? "").trim(),
       djName,
       eventDate: String(reqRow.event_date ?? "").trim(),
@@ -268,6 +331,46 @@ export async function POST(req: Request) {
       bookingId,
       publicToken,
     });
+    sendResults.push({ ok: res.ok, who: "requester", ...(res.ok ? {} : { error: res.error }) });
+  }
+
+  if (djEmail) {
+    const res = await sendEmailDepositReceived({
+      to: djEmail,
+      recipientType: "dj",
+      requesterName: String(reqRow.requester_name ?? "").trim(),
+      djName,
+      eventDate: String(reqRow.event_date ?? "").trim(),
+      eventLocation: String(reqRow.event_location ?? "").trim(),
+      quotedTotal: reqRow.quoted_total ?? null,
+      bookingId,
+      publicToken,
+    });
+    sendResults.push({ ok: res.ok, who: "dj", ...(res.ok ? {} : { error: res.error }) });
+  }
+
+  const allOk = sendResults.length > 0 && sendResults.every((r) => r.ok);
+
+  // Only mark sent if BOTH emails succeeded (or if DJ email is unavailable, requester alone is sufficient)
+  // Rule: don't mark sent_at if sending fails.
+  const hasRequester = sendResults.some((r) => r.who === "requester");
+  const requesterOk = sendResults.some((r) => r.who === "requester" && r.ok);
+  const djWasAttempted = sendResults.some((r) => r.who === "dj");
+  const djOk = !djWasAttempted || sendResults.some((r) => r.who === "dj" && r.ok);
+
+  if (hasRequester && requesterOk && djOk) {
+    await sb
+      .from("booking_requests")
+      .update({
+        deposit_email_sent_at: new Date().toISOString(),
+      })
+      .eq("id", bookingId);
+  } else {
+    // Keep quiet: webhook succeeds, but we intentionally DO NOT mark sent_at.
+    // This enables retry on future webhook replays or manual resend tooling later.
+    if (!allOk) {
+      console.warn("[SpinBookHQ] Email #4 not fully sent:", sendResults);
+    }
   }
 
   return NextResponse.json({ received: true }, { status: 200 });
