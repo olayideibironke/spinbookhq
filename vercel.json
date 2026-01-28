@@ -1,7 +1,7 @@
 {
   "crons": [
     {
-      "path": "/api/cron/balance-reminder?secret=${CRON_SECRET}",
+      "path": "/api/cron/balance-reminder",
       "schedule": "0 14 * * *"
     }
   ]

@@ -139,17 +139,16 @@ function addDaysUtc(d: Date, days: number) {
 }
 
 export async function GET(req: Request) {
-  // ✅ Vercel Cron-friendly auth: ?secret=...
+  // ✅ Official Vercel Cron security:
+  // Vercel will automatically send: Authorization: Bearer <CRON_SECRET>
   const secret = process.env.CRON_SECRET;
 
   if (!secret) {
     return NextResponse.json({ error: "Missing CRON_SECRET" }, { status: 500 });
   }
 
-  const url = new URL(req.url);
-  const provided = String(url.searchParams.get("secret") ?? "").trim();
-
-  if (!provided || provided !== secret) {
+  const authHeader = req.headers.get("authorization") ?? "";
+  if (authHeader !== `Bearer ${secret}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -175,7 +174,7 @@ export async function GET(req: Request) {
 
   if (error) {
     console.warn("[SpinBookHQ] reminder query failed:", error);
-    return NextResponse.json({ ok: false }, { status: 500 });
+    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
 
   let sent = 0;
