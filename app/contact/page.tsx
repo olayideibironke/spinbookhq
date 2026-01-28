@@ -37,9 +37,8 @@ export default function ContactPage() {
               </h1>
 
               <p className="mt-3 max-w-2xl text-sm leading-relaxed text-white/70">
-                Questions, support, or booking help — send us a message anytime.
-                SpinBook HQ is built for events everywhere, and we typically
-                respond within 24 hours.
+                For bookings, questions, or support, send us a message here. We
+                typically respond within 24 hours.
               </p>
             </div>
 
@@ -100,8 +99,8 @@ export default function ContactPage() {
                 <div className="pointer-events-none mt-6 h-px w-full bg-gradient-to-r from-transparent via-white/10 to-transparent" />
 
                 <p className="mt-6 text-xs leading-relaxed text-white/55">
-                  For booking support, include the DJ name, event date, event
-                  location (city + country), and your budget range for a faster
+                  If you’re contacting us about a booking, include the DJ name,
+                  event date, location, and your budget range for a faster
                   response.
                 </p>
               </div>
@@ -132,17 +131,10 @@ export default function ContactPage() {
                 <div className="pointer-events-none mt-6 h-px w-full bg-gradient-to-r from-transparent via-white/10 to-transparent" />
 
                 {/* ✅ Keep Formspree + fields unchanged */}
-                <form
-                  action={FORM_ACTION}
-                  method="POST"
-                  className="mt-7 space-y-6"
-                >
+                <form action={FORM_ACTION} method="POST" className="mt-7 space-y-6">
                   <div className="grid gap-4 md:grid-cols-2">
                     <div className="space-y-2">
-                      <label
-                        htmlFor="name"
-                        className="text-sm font-semibold text-white/85"
-                      >
+                      <label htmlFor="name" className="text-sm font-semibold text-white/85">
                         Full name
                       </label>
                       <input
@@ -155,10 +147,7 @@ export default function ContactPage() {
                     </div>
 
                     <div className="space-y-2">
-                      <label
-                        htmlFor="email"
-                        className="text-sm font-semibold text-white/85"
-                      >
+                      <label htmlFor="email" className="text-sm font-semibold text-white/85">
                         Email
                       </label>
                       <input
@@ -173,10 +162,7 @@ export default function ContactPage() {
                   </div>
 
                   <div className="space-y-2">
-                    <label
-                      htmlFor="subject"
-                      className="text-sm font-semibold text-white/85"
-                    >
+                    <label htmlFor="subject" className="text-sm font-semibold text-white/85">
                       Subject
                     </label>
                     <input
@@ -189,10 +175,7 @@ export default function ContactPage() {
                   </div>
 
                   <div className="space-y-2">
-                    <label
-                      htmlFor="message"
-                      className="text-sm font-semibold text-white/85"
-                    >
+                    <label htmlFor="message" className="text-sm font-semibold text-white/85">
                       Message
                     </label>
                     <textarea
