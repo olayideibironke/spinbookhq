@@ -7,6 +7,8 @@ import { stripe } from "@/lib/stripe";
 
 export const dynamic = "force-dynamic";
 
+const COMPANY_BCC = "spinbookhq@gmail.com";
+
 function buildOrigin() {
   return (
     process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ||
@@ -51,7 +53,10 @@ function getSupabaseAdmin() {
   });
 }
 
-async function getAuthEmailByUserId(sb: ReturnType<typeof getSupabaseAdmin>, userId: string) {
+async function getAuthEmailByUserId(
+  sb: ReturnType<typeof getSupabaseAdmin>,
+  userId: string
+) {
   const uid = String(userId ?? "").trim();
   if (!uid) return null;
 
@@ -65,7 +70,10 @@ async function getAuthEmailByUserId(sb: ReturnType<typeof getSupabaseAdmin>, use
     const email = String(data?.user?.email ?? "").trim();
     return email || null;
   } catch (e: any) {
-    console.warn("[SpinBookHQ] auth.admin.getUserById exception:", String(e?.message ?? e));
+    console.warn(
+      "[SpinBookHQ] auth.admin.getUserById exception:",
+      String(e?.message ?? e)
+    );
     return null;
   }
 }
@@ -159,7 +167,7 @@ async function sendEmailDepositReceived(args: {
       body: JSON.stringify({
         from,
         to: args.to,
-        bcc: ["spinbookhq@gmail.com"], // ✅ compulsory company visibility
+        bcc: [COMPANY_BCC], // ✅ compulsory company visibility
         subject,
         html,
       }),
@@ -204,10 +212,7 @@ export async function POST(req: Request) {
     event = stripe.webhooks.constructEvent(rawBody, signature, secret);
   } catch (err: any) {
     console.warn("[SpinBookHQ] Webhook signature verification failed:", err);
-    return NextResponse.json(
-      { error: "Invalid signature" },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
   }
 
   // Only handle what we need.
@@ -235,7 +240,7 @@ export async function POST(req: Request) {
 
   const sb = getSupabaseAdmin();
 
-  // Fetch request row to determine whether to update + email.
+  // Fetch request row
   const { data: reqRow, error: reqErr } = await sb
     .from("booking_requests")
     .select(
@@ -262,10 +267,22 @@ export async function POST(req: Request) {
     return NextResponse.json({ received: true }, { status: 200 });
   }
 
-  // If already marked paid, still proceed to email idempotently (in case older runs updated paid but email failed).
+  // ✅ Safety: ensure this webhook is for the same checkout session we generated.
+  // If the DB has a stored session id and it doesn't match, do NOT update or email.
+  const incomingSessionId = String(session.id ?? "").trim();
+  const storedSessionId = String(reqRow.stripe_checkout_session_id ?? "").trim();
+  if (storedSessionId && incomingSessionId && storedSessionId !== incomingSessionId) {
+    console.warn("[SpinBookHQ] Session ID mismatch for booking", {
+      bookingId,
+      storedSessionId,
+      incomingSessionId,
+    });
+    return NextResponse.json({ received: true }, { status: 200 });
+  }
+
   const alreadyPaid = reqRow.deposit_paid === true;
 
-  // Ensure public token exists for public tracking (non-registered user flow)
+  // Ensure public token exists
   let publicToken = String(reqRow.public_token ?? "").trim();
   if (!publicToken) {
     publicToken = generatePublicToken();
@@ -281,11 +298,11 @@ export async function POST(req: Request) {
         deposit_paid: true,
         deposit_paid_at: nowIso,
         public_token: publicToken,
-        stripe_checkout_session_id: reqRow.stripe_checkout_session_id ?? session.id,
+        stripe_checkout_session_id: storedSessionId || incomingSessionId || null,
       })
       .eq("id", bookingId);
   } else {
-    // Still ensure token exists
+    // Ensure token exists even if already paid
     if (!reqRow.public_token) {
       await sb
         .from("booking_requests")
@@ -294,12 +311,12 @@ export async function POST(req: Request) {
     }
   }
 
-  // Idempotency for Email #4: if already sent, stop here.
+  // Idempotency for Email #4
   if (reqRow.deposit_email_sent_at) {
     return NextResponse.json({ received: true }, { status: 200 });
   }
 
-  // Lookup DJ name + DJ email
+  // DJ name
   let djName = "DJ";
   if (reqRow.dj_user_id) {
     const { data: djProfile } = await sb
@@ -311,13 +328,17 @@ export async function POST(req: Request) {
     djName = String(djProfile?.stage_name ?? "DJ").trim();
   }
 
+  // DJ email (auth email)
   const djEmail = await getAuthEmailByUserId(sb, reqRow.dj_user_id);
 
-  // Email #4: deposit received → requester AND DJ (+ BCC SpinBook HQ)
+  // Send email to requester AND DJ
   const requesterTo = String(reqRow.requester_email ?? "").trim();
 
-  const sendResults: Array<{ ok: boolean; who: "requester" | "dj"; error?: string }> =
-    [];
+  const sendResults: Array<{
+    ok: boolean;
+    who: "requester" | "dj";
+    error?: string;
+  }> = [];
 
   if (requesterTo) {
     const res = await sendEmailDepositReceived({
@@ -331,7 +352,11 @@ export async function POST(req: Request) {
       bookingId,
       publicToken,
     });
-    sendResults.push({ ok: res.ok, who: "requester", ...(res.ok ? {} : { error: res.error }) });
+    sendResults.push({
+      ok: res.ok,
+      who: "requester",
+      ...(res.ok ? {} : { error: res.error }),
+    });
   }
 
   if (djEmail) {
@@ -346,31 +371,25 @@ export async function POST(req: Request) {
       bookingId,
       publicToken,
     });
-    sendResults.push({ ok: res.ok, who: "dj", ...(res.ok ? {} : { error: res.error }) });
+    sendResults.push({
+      ok: res.ok,
+      who: "dj",
+      ...(res.ok ? {} : { error: res.error }),
+    });
   }
 
-  const allOk = sendResults.length > 0 && sendResults.every((r) => r.ok);
-
-  // Only mark sent if BOTH emails succeeded (or if DJ email is unavailable, requester alone is sufficient)
-  // Rule: don't mark sent_at if sending fails.
-  const hasRequester = sendResults.some((r) => r.who === "requester");
+  // ✅ Mark sent ONLY if requester email succeeded AND (DJ email succeeded OR no DJ email exists)
   const requesterOk = sendResults.some((r) => r.who === "requester" && r.ok);
-  const djWasAttempted = sendResults.some((r) => r.who === "dj");
-  const djOk = !djWasAttempted || sendResults.some((r) => r.who === "dj" && r.ok);
+  const djAttempted = sendResults.some((r) => r.who === "dj");
+  const djOk = !djAttempted || sendResults.some((r) => r.who === "dj" && r.ok);
 
-  if (hasRequester && requesterOk && djOk) {
+  if (requesterOk && djOk) {
     await sb
       .from("booking_requests")
-      .update({
-        deposit_email_sent_at: new Date().toISOString(),
-      })
+      .update({ deposit_email_sent_at: new Date().toISOString() })
       .eq("id", bookingId);
   } else {
-    // Keep quiet: webhook succeeds, but we intentionally DO NOT mark sent_at.
-    // This enables retry on future webhook replays or manual resend tooling later.
-    if (!allOk) {
-      console.warn("[SpinBookHQ] Email #4 not fully sent:", sendResults);
-    }
+    console.warn("[SpinBookHQ] Email #4 not fully sent:", sendResults);
   }
 
   return NextResponse.json({ received: true }, { status: 200 });
