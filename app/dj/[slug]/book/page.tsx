@@ -1,6 +1,7 @@
 // FILE: app/dj/[slug]/book/page.tsx
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import crypto from "crypto";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -38,12 +39,8 @@ function parseGenres(raw: unknown): string[] {
 }
 
 function makeToken() {
-  // 32 bytes => 64 hex chars (unguessable)
-  const bytes = new Uint8Array(32);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes)
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+  // ✅ Node-stable token generator (server-safe)
+  return crypto.randomBytes(32).toString("hex");
 }
 
 function buildOrigin() {
@@ -128,7 +125,7 @@ async function sendEmailRequestReceived(args: {
       body: JSON.stringify({
         from,
         to: args.to,
-        bcc: [COMPANY_BCC], // ✅ compulsory company visibility
+        bcc: [COMPANY_BCC],
         subject,
         html,
       }),
@@ -153,11 +150,12 @@ export default async function DjBookingPage({
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ ok?: string }>;
+  searchParams: Promise<{ ok?: string; reason?: string }>;
 }) {
   const { slug } = await params;
   const sp = await searchParams;
   const ok = sp?.ok;
+  const reason = (sp?.reason ?? "").trim();
 
   const supabase = await createClient();
 
@@ -194,79 +192,85 @@ export default async function DjBookingPage({
   async function submitBooking(formData: FormData) {
     "use server";
 
-    const name = String(formData.get("name") ?? "").trim();
-    const email = String(formData.get("email") ?? "").trim();
-    const eventDate = String(formData.get("event_date") ?? "").trim();
-    const location = String(formData.get("location") ?? "").trim();
-    const message = String(formData.get("message") ?? "").trim();
+    try {
+      const name = String(formData.get("name") ?? "").trim();
+      const email = String(formData.get("email") ?? "").trim();
+      const eventDate = String(formData.get("event_date") ?? "").trim();
+      const location = String(formData.get("location") ?? "").trim();
+      const message = String(formData.get("message") ?? "").trim();
 
-    if (!name || !email || !eventDate || !location) {
-      redirect(`/dj/${slug}/book?ok=0`);
-    }
+      if (!name || !email || !eventDate || !location) {
+        redirect(`/dj/${slug}/book?ok=0&reason=missing_fields`);
+      }
 
-    if (!isValidEmail(email)) {
-      redirect(`/dj/${slug}/book?ok=0`);
-    }
+      if (!isValidEmail(email)) {
+        redirect(`/dj/${slug}/book?ok=0&reason=bad_email`);
+      }
 
-    const sb = await createClient();
+      const sb = await createClient();
 
-    const { data: djRow, error: djRowErr } = await sb
-      .from("dj_profiles")
-      .select("user_id, published, stage_name")
-      .eq("slug", slug)
-      .maybeSingle<{
-        user_id: string;
-        published: boolean | null;
-        stage_name: string | null;
-      }>();
+      const { data: djRow, error: djRowErr } = await sb
+        .from("dj_profiles")
+        .select("user_id, published, stage_name")
+        .eq("slug", slug)
+        .maybeSingle<{
+          user_id: string;
+          published: boolean | null;
+          stage_name: string | null;
+        }>();
 
-    if (djRowErr || !djRow || djRow.published !== true) {
-      redirect(`/dj/${slug}/book?ok=0`);
-    }
+      if (djRowErr || !djRow || djRow.published !== true) {
+        console.warn("[SpinBookHQ] DJ lookup failed:", djRowErr);
+        redirect(`/dj/${slug}/book?ok=0&reason=dj_not_found`);
+      }
 
-    const public_token = makeToken();
+      const public_token = makeToken();
 
-    const { data: inserted, error: insertErr } = await sb
-      .from("booking_requests")
-      .insert({
-        dj_user_id: djRow.user_id,
-        requester_name: name,
-        requester_email: email,
-        event_date: eventDate,
-        event_location: location,
-        message: message ? message : null,
-        status: "new",
-        public_token,
-      })
-      .select("id, public_token")
-      .maybeSingle<{ id: string; public_token: string | null }>();
-
-    if (insertErr || !inserted?.id || !inserted.public_token) {
-      console.warn("[SpinBookHQ] booking_requests insert failed:", insertErr);
-      redirect(`/dj/${slug}/book?ok=0`);
-    }
-
-    // ✅ Email #1 — Request received (only mark sent if success)
-    const sendRes = await sendEmailRequestReceived({
-      to: email,
-      requesterName: name,
-      djName: djRow.stage_name ?? "DJ",
-      bookingId: inserted.id,
-      publicToken: inserted.public_token,
-      eventDate,
-      eventLocation: location,
-    });
-
-    if (sendRes.ok) {
-      await sb
+      const { data: inserted, error: insertErr } = await sb
         .from("booking_requests")
-        .update({ request_email_sent_at: new Date().toISOString() })
-        .eq("id", inserted.id);
-    } else {
-      console.warn("[SpinBookHQ] Email #1 failed (no sent_at set):", sendRes);
-    }
+        .insert({
+          dj_user_id: djRow.user_id,
+          requester_name: name,
+          requester_email: email,
+          event_date: eventDate,
+          event_location: location,
+          message: message ? message : null,
+          status: "new",
+          public_token,
+        })
+        .select("id, public_token")
+        .maybeSingle<{ id: string; public_token: string | null }>();
 
-    redirect(`/dj/${slug}/book?ok=1`);
+      if (insertErr || !inserted?.id || !inserted.public_token) {
+        console.warn("[SpinBookHQ] booking_requests insert failed:", insertErr);
+        redirect(`/dj/${slug}/book?ok=0&reason=insert_failed`);
+      }
+
+      // Email #1 — Request received (non-blocking)
+      const sendRes = await sendEmailRequestReceived({
+        to: email,
+        requesterName: name,
+        djName: djRow.stage_name ?? "DJ",
+        bookingId: inserted.id,
+        publicToken: inserted.public_token,
+        eventDate,
+        eventLocation: location,
+      });
+
+      if (sendRes.ok) {
+        await sb
+          .from("booking_requests")
+          .update({ request_email_sent_at: new Date().toISOString() })
+          .eq("id", inserted.id);
+      } else {
+        console.warn("[SpinBookHQ] Email #1 failed:", sendRes);
+      }
+
+      redirect(`/dj/${slug}/book?ok=1`);
+    } catch (e: any) {
+      console.warn("[SpinBookHQ] submitBooking exception:", String(e?.message ?? e));
+      redirect(`/dj/${slug}/book?ok=0&reason=server_exception`);
+    }
   }
 
   const djName = dj.stage_name ?? "DJ";
@@ -278,10 +282,24 @@ export default async function DjBookingPage({
   const showSuccess = ok === "1";
   const showError = ok === "0";
 
+  const prettyReason =
+    reason === "missing_fields"
+      ? "Missing required fields."
+      : reason === "bad_email"
+      ? "Invalid email address."
+      : reason === "dj_not_found"
+      ? "DJ profile lookup failed."
+      : reason === "insert_failed"
+      ? "Could not create request (database insert failed)."
+      : reason === "server_exception"
+      ? "Server error (see logs)."
+      : reason
+      ? `Error: ${reason}`
+      : "";
+
   return (
     <main className="p-6">
       <div className="mx-auto w-full max-w-4xl">
-        {/* Top nav */}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <Link
             className="inline-flex items-center rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-sm font-semibold text-white/80 hover:bg-white/[0.06]"
@@ -295,7 +313,6 @@ export default async function DjBookingPage({
           </span>
         </div>
 
-        {/* Header */}
         <div className="mt-7">
           <h1 className="text-4xl font-extrabold tracking-tight text-white">
             Request Booking
@@ -307,7 +324,6 @@ export default async function DjBookingPage({
             {djCity ? <span className="text-white/55"> • {djCity}</span> : null}
           </p>
 
-          {/* Genre chips */}
           {topGenres.length > 0 ? (
             <div className="mt-4">
               <p className="text-xs font-extrabold tracking-[0.18em] text-white/55">
@@ -332,7 +348,6 @@ export default async function DjBookingPage({
           </p>
         </div>
 
-        {/* How it works */}
         <section className="mt-6 rounded-3xl border border-white/10 bg-white/[0.04] p-6 shadow-[0_18px_60px_rgba(0,0,0,0.55)] backdrop-blur">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
@@ -357,7 +372,6 @@ export default async function DjBookingPage({
           </div>
         </section>
 
-        {/* Status banners */}
         {showSuccess && (
           <div className="mt-6 rounded-3xl border border-emerald-400/20 bg-emerald-500/10 p-6 shadow-[0_18px_60px_rgba(0,0,0,0.35)]">
             <div className="flex items-center gap-2 text-base font-extrabold text-emerald-100">
@@ -394,10 +408,12 @@ export default async function DjBookingPage({
               Please check the required fields (name, email, date, location) and
               try again.
             </p>
+            {prettyReason ? (
+              <p className="mt-2 text-xs text-red-100/70">{prettyReason}</p>
+            ) : null}
           </div>
         )}
 
-        {/* Form card (hide after success) */}
         {!showSuccess && (
           <section className="mt-6 rounded-3xl border border-white/10 bg-white/[0.04] p-7 shadow-[0_18px_60px_rgba(0,0,0,0.55)] backdrop-blur">
             <form action={submitBooking} className="space-y-6">
@@ -446,9 +462,6 @@ export default async function DjBookingPage({
                       className="w-full rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white/90 shadow-[0_0_0_1px_rgba(255,255,255,0.03)] outline-none focus:ring-2 focus:ring-violet-400/40"
                     />
                   </div>
-                  <p className="mt-2 text-xs text-white/55">
-                    Pick the event date you want to lock in.
-                  </p>
                 </div>
 
                 <div>
@@ -463,9 +476,6 @@ export default async function DjBookingPage({
                       className="w-full rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white/90 placeholder:text-white/35 shadow-[0_0_0_1px_rgba(255,255,255,0.03)] outline-none focus:ring-2 focus:ring-violet-400/40"
                     />
                   </div>
-                  <p className="mt-2 text-xs text-white/55">
-                    Example: Washington, DC
-                  </p>
                 </div>
               </div>
 
@@ -480,18 +490,6 @@ export default async function DjBookingPage({
                     placeholder="Event type, venue, start time, set length, music style, equipment needs, etc."
                     className="w-full rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white/90 placeholder:text-white/35 shadow-[0_0_0_1px_rgba(255,255,255,0.03)] outline-none focus:ring-2 focus:ring-violet-400/40"
                   />
-                </div>
-
-                <div className="mt-3 rounded-2xl border border-white/10 bg-black/20 p-4">
-                  <p className="text-xs font-extrabold text-white/80">
-                    Quick checklist (optional)
-                  </p>
-                  <ul className="mt-2 space-y-1 text-xs text-white/60">
-                    <li>• Start time + end time</li>
-                    <li>• Venue type (home, hall, club, outdoor)</li>
-                    <li>• Music vibe (Afrobeats, Hip-Hop, House, etc.)</li>
-                    <li>• Do you need speakers / mic?</li>
-                  </ul>
                 </div>
               </div>
 
