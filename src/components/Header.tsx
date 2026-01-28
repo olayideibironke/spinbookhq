@@ -62,23 +62,24 @@ export default async function Header() {
 
   return (
     <header className="sticky top-0 z-50 border-b border-white/10 bg-black/40 backdrop-blur">
-      <div className="mx-auto w-full max-w-6xl px-4 py-3">
+      {/* ✅ tighter vertical padding */}
+      <div className="mx-auto w-full max-w-6xl px-4 py-2">
         {/* Brand row */}
         <div className="flex items-center justify-between">
           <Link href="/" className="flex items-center gap-3">
-            {/* ✅ Real logo */}
-            <div className="relative h-10 w-10 overflow-hidden rounded-full bg-white/10 ring-1 ring-white/10">
+            {/* Logo */}
+            <div className="relative h-9 w-9 overflow-hidden rounded-full bg-white/10 ring-1 ring-white/10">
               <Image
                 src="/logo.png"
                 alt="SpinBook HQ logo"
                 fill
-                sizes="40px"
+                sizes="36px"
                 className="object-cover"
                 priority
               />
             </div>
 
-            <div>
+            <div className="leading-tight">
               <div className="flex items-center gap-2">
                 <span className="text-base font-extrabold text-white">
                   SpinBook HQ
@@ -87,7 +88,7 @@ export default async function Header() {
                   HQ
                 </span>
               </div>
-              <p className="text-xs text-white/55">
+              <p className="text-[11px] text-white/55">
                 Book DJs. Collect deposits. Stay organized.
               </p>
             </div>
@@ -116,8 +117,8 @@ export default async function Header() {
           </div>
         </div>
 
-        {/* Desktop nav links (centered) */}
-        <nav className="mt-3 hidden md:flex items-center justify-center gap-2">
+        {/* ✅ tighter gap between rows */}
+        <nav className="mt-2 hidden md:flex items-center justify-center gap-2">
           {!isAuthed ? (
             <>
               <NavLink
@@ -184,7 +185,6 @@ export default async function Header() {
             </Link>
           </div>
 
-          {/* Secondary actions */}
           <div className="mt-2 flex gap-2">
             {!isAuthed ? (
               <>
