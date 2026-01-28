@@ -1,5 +1,6 @@
 // FILE: app/(protected)/dashboard/requests/page.tsx
 import Link from "next/link";
+import crypto from "crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
@@ -31,6 +32,10 @@ type BookingRequest = {
   stripe_checkout_session_id: string | null;
   deposit_paid: boolean;
   deposit_paid_at: string | null;
+
+  // ✅ Email/public tracking fields
+  public_token?: string | null;
+  accept_email_sent_at?: string | null;
 };
 
 function isValidStatus(v: unknown): v is BookingStatus {
@@ -98,6 +103,126 @@ function calcPlatformFeeTotal(quotedTotal: number) {
 function calcFeeDue(platformFeeTotal: number, platformFeePaid: number) {
   const due = platformFeeTotal - platformFeePaid;
   return due > 0 ? due : 0;
+}
+
+function buildOrigin() {
+  return (
+    process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ||
+    "http://localhost:3000"
+  );
+}
+
+function escapeHtml(input: string) {
+  return String(input ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function escapeAttr(input: string) {
+  return escapeHtml(input).replaceAll("`", "&#96;");
+}
+
+function formatUsd(amount: number) {
+  return amount.toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  });
+}
+
+function generatePublicToken() {
+  return crypto.randomBytes(32).toString("hex");
+}
+
+async function sendEmailAcceptedDepositRequired(args: {
+  to: string;
+  requesterName: string;
+  djName: string;
+  quotedTotal: number;
+  eventDate: string;
+  eventLocation: string;
+  bookingId: string;
+  publicToken: string;
+  checkoutUrl: string;
+}) {
+  const apiKey = process.env.RESEND_API_KEY;
+  const from = process.env.RESEND_FROM_EMAIL;
+
+  // Don’t break the booking flow if email isn’t configured yet.
+  if (!apiKey || !from) {
+    console.warn(
+      "[SpinBookHQ] Resend env missing: set RESEND_API_KEY and RESEND_FROM_EMAIL to enable Email #2."
+    );
+    return;
+  }
+
+  const origin = buildOrigin();
+  const statusUrl = `${origin}/r/${encodeURIComponent(args.publicToken)}`;
+
+  const subject = `DJ accepted — deposit required to confirm your booking`;
+
+  const html = `
+  <div style="font-family:ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; line-height:1.5; color:#0b0b0f;">
+    <h2 style="margin:0 0 12px 0;">Your request was accepted ✅</h2>
+
+    <p style="margin:0 0 12px 0;">
+      Hi ${escapeHtml(args.requesterName || "there")},<br/>
+      <strong>${escapeHtml(args.djName)}</strong> accepted your booking request.
+      To lock in your date, please pay the required <strong>${formatUsd(200)}</strong> deposit.
+    </p>
+
+    <div style="border:1px solid #e6e6ef; border-radius:14px; padding:14px; background:#fafafe; margin:14px 0;">
+      <div><strong>Booking reference:</strong> ${escapeHtml(args.bookingId)}</div>
+      <div><strong>Agreed total price:</strong> ${formatUsd(Number(args.quotedTotal))}</div>
+      <div><strong>Event date:</strong> ${escapeHtml(args.eventDate)}</div>
+      <div><strong>Location:</strong> ${escapeHtml(args.eventLocation)}</div>
+      <div style="margin-top:10px;">
+        <strong>Deposit:</strong> ${formatUsd(200)} (non-refundable)
+      </div>
+      <div style="margin-top:6px; font-size:12px; color:#4b5563;">
+        Policy: If you do <strong>NOT</strong> pay the remaining balance to the DJ <strong>7 days before the event</strong>,
+        the deposit is forfeited and the DJ may cancel.
+      </div>
+    </div>
+
+    <p style="margin:0 0 12px 0;">
+      <strong>Pay deposit now:</strong><br/>
+      <a href="${escapeAttr(args.checkoutUrl)}">${escapeHtml(args.checkoutUrl)}</a>
+    </p>
+
+    <p style="margin:0 0 12px 0;">
+      Track your booking status (no account required):<br/>
+      <a href="${escapeAttr(statusUrl)}">${escapeHtml(statusUrl)}</a>
+    </p>
+
+    <hr style="border:none; border-top:1px solid #e6e6ef; margin:16px 0;" />
+    <p style="margin:0; font-size:12px; color:#6b7280;">
+      SpinBook HQ • Secure bookings for premium DJs
+    </p>
+  </div>
+  `;
+
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from,
+      to: args.to,
+      subject,
+      html,
+    }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    console.warn("[SpinBookHQ] Resend send failed:", res.status, text);
+  }
 }
 
 export default async function DashboardRequestsPage({
@@ -217,7 +342,7 @@ export default async function DashboardRequestsPage({
     const { data: req, error: reqErr } = await supabase
       .from("booking_requests")
       .select(
-        "id, dj_user_id, requester_email, requester_name, status, checkout_url, stripe_checkout_session_id, deposit_paid, quoted_total, platform_fee_total, platform_fee_paid, fee_status"
+        "id, dj_user_id, requester_email, requester_name, event_date, event_location, status, checkout_url, stripe_checkout_session_id, deposit_paid, quoted_total, platform_fee_total, platform_fee_paid, fee_status, public_token, accept_email_sent_at"
       )
       .eq("id", requestId)
       .single();
@@ -231,8 +356,50 @@ export default async function DashboardRequestsPage({
 
     if (req.deposit_paid) return;
 
-    // If already created, just revalidate UI
+    const origin = buildOrigin();
+
+    // ✅ Ensure token exists (used for Email #2 + public tracking page)
+    let publicToken = String(req.public_token ?? "").trim();
+    if (!publicToken) {
+      publicToken = generatePublicToken();
+    }
+
+    // If already created, still send Email #2 if not already sent (idempotent)
     if (req.checkout_url) {
+      const alreadySent = !!req.accept_email_sent_at;
+
+      if (!alreadySent) {
+        // Get DJ name for nicer email
+        const { data: djProfileName } = await supabase
+          .from("dj_profiles")
+          .select("stage_name")
+          .eq("user_id", req.dj_user_id)
+          .maybeSingle<{ stage_name: string | null }>();
+
+        const djName = String(djProfileName?.stage_name ?? "DJ").trim();
+
+        await sendEmailAcceptedDepositRequired({
+          to: String(req.requester_email ?? "").trim(),
+          requesterName: String(req.requester_name ?? "").trim(),
+          djName,
+          quotedTotal: Number(req.quoted_total),
+          eventDate: String(req.event_date ?? "").trim(),
+          eventLocation: String(req.event_location ?? "").trim(),
+          bookingId: String(req.id),
+          publicToken,
+          checkoutUrl: String(req.checkout_url),
+        });
+
+        await supabase
+          .from("booking_requests")
+          .update({
+            public_token: publicToken,
+            accept_email_sent_at: new Date().toISOString(),
+          })
+          .eq("id", requestId)
+          .eq("dj_user_id", authedUser.id);
+      }
+
       revalidatePath("/dashboard/requests");
       revalidatePath(`/dashboard/requests/${requestId}`);
       return;
@@ -240,16 +407,13 @@ export default async function DashboardRequestsPage({
 
     const { data: djProfile } = await supabase
       .from("dj_profiles")
-      .select("slug")
+      .select("slug, stage_name")
       .eq("user_id", req.dj_user_id)
-      .maybeSingle<{ slug: string | null }>();
+      .maybeSingle<{ slug: string | null; stage_name: string | null }>();
 
     const djSlug = String(djProfile?.slug ?? "").trim();
+    const djName = String(djProfile?.stage_name ?? "DJ").trim();
     const djSlugParam = djSlug ? `&dj=${encodeURIComponent(djSlug)}` : "";
-
-    const origin =
-      process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ||
-      "http://localhost:3000";
 
     // ✅ FIXED deposit = $200
     const DEPOSIT_AMOUNT_CENTS = 20000;
@@ -264,7 +428,9 @@ export default async function DashboardRequestsPage({
 
     const platformFeePaid = 80; // $80 of the deposit counts toward platform fee
     const feeStatus =
-      platformFeeTotal != null && platformFeeTotal > platformFeePaid ? "due" : "ok";
+      platformFeeTotal != null && platformFeeTotal > platformFeePaid
+        ? "due"
+        : "ok";
 
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
@@ -305,19 +471,37 @@ export default async function DashboardRequestsPage({
       },
     });
 
+    const checkoutUrl = String(session.url ?? "").trim();
+    if (!checkoutUrl) return;
+
+    // Save session + token + fee fields
     await supabase
       .from("booking_requests")
       .update({
-        checkout_url: session.url ?? null,
+        checkout_url: checkoutUrl,
         stripe_checkout_session_id: session.id,
+        public_token: publicToken,
+        accept_email_sent_at: new Date().toISOString(),
 
-        // keep DB fee fields consistent with the rules
         ...(platformFeeTotal != null ? { platform_fee_total: platformFeeTotal } : {}),
         platform_fee_paid: platformFeePaid,
         fee_status: feeStatus,
       })
       .eq("id", requestId)
       .eq("dj_user_id", authedUser.id);
+
+    // ✅ Email #2: DJ accepted + deposit required (uses public_token)
+    await sendEmailAcceptedDepositRequired({
+      to: String(req.requester_email ?? "").trim(),
+      requesterName: String(req.requester_name ?? "").trim(),
+      djName,
+      quotedTotal: Number(req.quoted_total),
+      eventDate: String(req.event_date ?? "").trim(),
+      eventLocation: String(req.event_location ?? "").trim(),
+      bookingId: String(req.id),
+      publicToken,
+      checkoutUrl,
+    });
 
     revalidatePath("/dashboard/requests");
     revalidatePath(`/dashboard/requests/${requestId}`);
@@ -337,7 +521,7 @@ export default async function DashboardRequestsPage({
   let query = supabase
     .from("booking_requests")
     .select(
-      "id, created_at, requester_name, requester_email, event_date, event_location, message, status, quoted_total, quoted_at, platform_fee_total, platform_fee_paid, fee_status, checkout_url, stripe_checkout_session_id, deposit_paid, deposit_paid_at"
+      "id, created_at, requester_name, requester_email, event_date, event_location, message, status, quoted_total, quoted_at, platform_fee_total, platform_fee_paid, fee_status, checkout_url, stripe_checkout_session_id, deposit_paid, deposit_paid_at, public_token, accept_email_sent_at"
     )
     .eq("dj_user_id", user.id)
     .order("created_at", { ascending: false });
@@ -638,7 +822,7 @@ export default async function DashboardRequestsPage({
                             ) : null}
                           </>
                         ) : r.checkout_url ? (
-                          <>Link is ready. Share it with the client to complete payment.</>
+                          <>Link is ready. We emailed the client to complete payment.</>
                         ) : r.status === "accepted" ? (
                           quoted != null ? (
                             <>Generate the $200 deposit link to secure this booking.</>
