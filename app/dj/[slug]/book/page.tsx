@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { buildPublicRequestUrl, requestSentEmail, sendEmail } from "@/lib/email";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +35,15 @@ function parseGenres(raw: unknown): string[] {
   return [];
 }
 
+function makeToken() {
+  // 32 bytes => 64 hex chars (unguessable)
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 export default async function DjBookingPage({
   params,
   searchParams,
@@ -55,9 +65,9 @@ export default async function DjBookingPage({
 
   if (djErr || !dj || dj.published !== true) {
     return (
-      <main className="px-4 py-6 sm:px-6 sm:py-10">
+      <main className="p-6">
         <div className="mx-auto w-full max-w-3xl">
-          <h1 className="text-3xl font-extrabold tracking-tight text-white sm:text-4xl">
+          <h1 className="text-3xl font-extrabold tracking-tight text-white">
             Request Booking
           </h1>
           <p className="mt-3 text-sm text-white/65">
@@ -98,26 +108,69 @@ export default async function DjBookingPage({
 
     const { data: djRow, error: djRowErr } = await sb
       .from("dj_profiles")
-      .select("user_id, published")
+      .select("user_id, published, stage_name")
       .eq("slug", slug)
-      .maybeSingle<{ user_id: string; published: boolean | null }>();
+      .maybeSingle<{
+        user_id: string;
+        published: boolean | null;
+        stage_name: string | null;
+      }>();
 
     if (djRowErr || !djRow || djRow.published !== true) {
       redirect(`/dj/${slug}/book?ok=0`);
     }
 
-    const { error: insertErr } = await sb.from("booking_requests").insert({
-      dj_user_id: djRow.user_id,
-      requester_name: name,
-      requester_email: email,
-      event_date: eventDate,
-      event_location: location,
-      message: message ? message : null,
-      status: "new",
-    });
+    const public_token = makeToken();
 
-    if (insertErr) {
+    const { data: inserted, error: insertErr } = await sb
+      .from("booking_requests")
+      .insert({
+        dj_user_id: djRow.user_id,
+        requester_name: name,
+        requester_email: email,
+        event_date: eventDate,
+        event_location: location,
+        message: message ? message : null,
+        status: "new",
+        public_token,
+      })
+      .select("id, public_token")
+      .maybeSingle<{ id: string; public_token: string | null }>();
+
+    if (insertErr || !inserted?.id || !inserted.public_token) {
       redirect(`/dj/${slug}/book?ok=0`);
+    }
+
+    // Email #1 — Request received (Requester + BCC SpinBook HQ)
+    // IMPORTANT: If email sending fails, do NOT mark request_email_sent_at.
+    try {
+      const BCC_COMPANY = "spinbookhq@gmail.com";
+
+      const tokenUrl = buildPublicRequestUrl(inserted.public_token);
+
+      const baseEmail = requestSentEmail({
+        to: email,
+        djName: djRow.stage_name ?? "DJ",
+        eventDate,
+        eventLocation: location,
+        tokenUrl,
+
+        // Extra context (safe if template ignores it)
+        bookingId: inserted.id as any,
+        publicToken: inserted.public_token as any,
+      } as any);
+
+      await sendEmail({
+        ...(baseEmail as any),
+        bcc: [BCC_COMPANY],
+      } as any);
+
+      await sb
+        .from("booking_requests")
+        .update({ request_email_sent_at: new Date().toISOString() })
+        .eq("id", inserted.id);
+    } catch {
+      // Non-blocking: request still created successfully
     }
 
     redirect(`/dj/${slug}/book?ok=1`);
@@ -133,13 +186,7 @@ export default async function DjBookingPage({
   const showError = ok === "0";
 
   return (
-    <main
-      className={[
-        // Mobile-safe spacing: avoid iOS bottom bar + any floating button overlays
-        "px-4 py-6 sm:px-6 sm:py-10",
-        "pb-[calc(6rem+env(safe-area-inset-bottom))]",
-      ].join(" ")}
-    >
+    <main className="p-6">
       <div className="mx-auto w-full max-w-4xl">
         {/* Top nav */}
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -157,7 +204,7 @@ export default async function DjBookingPage({
 
         {/* Header */}
         <div className="mt-7">
-          <h1 className="text-4xl font-extrabold tracking-tight text-white sm:text-5xl">
+          <h1 className="text-4xl font-extrabold tracking-tight text-white">
             Request Booking
           </h1>
 
@@ -167,7 +214,7 @@ export default async function DjBookingPage({
             {djCity ? <span className="text-white/55"> • {djCity}</span> : null}
           </p>
 
-          {/* ✅ Genre chips */}
+          {/* Genre chips */}
           {topGenres.length > 0 ? (
             <div className="mt-4">
               <p className="text-xs font-extrabold tracking-[0.18em] text-white/55">
@@ -193,7 +240,7 @@ export default async function DjBookingPage({
         </div>
 
         {/* How it works */}
-        <section className="mt-6 rounded-3xl border border-white/10 bg-white/[0.04] p-5 shadow-[0_18px_60px_rgba(0,0,0,0.55)] backdrop-blur sm:p-6">
+        <section className="mt-6 rounded-3xl border border-white/10 bg-white/[0.04] p-6 shadow-[0_18px_60px_rgba(0,0,0,0.55)] backdrop-blur">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <p className="text-base font-extrabold text-white">
@@ -259,7 +306,7 @@ export default async function DjBookingPage({
 
         {/* Form card (hide after success) */}
         {!showSuccess && (
-          <section className="mt-6 rounded-3xl border border-white/10 bg-white/[0.04] p-5 shadow-[0_18px_60px_rgba(0,0,0,0.55)] backdrop-blur sm:p-7">
+          <section className="mt-6 rounded-3xl border border-white/10 bg-white/[0.04] p-7 shadow-[0_18px_60px_rgba(0,0,0,0.55)] backdrop-blur">
             <form action={submitBooking} className="space-y-6">
               <div>
                 <label className="block text-sm font-semibold text-white/85">
@@ -270,8 +317,7 @@ export default async function DjBookingPage({
                     name="name"
                     placeholder="John Doe"
                     required
-                    // ✅ Mobile UX: 16px text prevents iOS zoom
-                    className="w-full rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-base text-white/90 placeholder:text-white/35 shadow-[0_0_0_1px_rgba(255,255,255,0.03)] outline-none focus:ring-2 focus:ring-violet-400/40 sm:text-sm"
+                    className="w-full rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white/90 placeholder:text-white/35 shadow-[0_0_0_1px_rgba(255,255,255,0.03)] outline-none focus:ring-2 focus:ring-violet-400/40"
                   />
                 </div>
               </div>
@@ -286,7 +332,7 @@ export default async function DjBookingPage({
                     name="email"
                     placeholder="you@email.com"
                     required
-                    className="w-full rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-base text-white/90 placeholder:text-white/35 shadow-[0_0_0_1px_rgba(255,255,255,0.03)] outline-none focus:ring-2 focus:ring-violet-400/40 sm:text-sm"
+                    className="w-full rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white/90 placeholder:text-white/35 shadow-[0_0_0_1px_rgba(255,255,255,0.03)] outline-none focus:ring-2 focus:ring-violet-400/40"
                   />
                 </div>
                 <p className="mt-2 text-xs text-white/55">
@@ -304,7 +350,7 @@ export default async function DjBookingPage({
                       type="date"
                       name="event_date"
                       required
-                      className="w-full rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-base text-white/90 shadow-[0_0_0_1px_rgba(255,255,255,0.03)] outline-none focus:ring-2 focus:ring-violet-400/40 sm:text-sm"
+                      className="w-full rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white/90 shadow-[0_0_0_1px_rgba(255,255,255,0.03)] outline-none focus:ring-2 focus:ring-violet-400/40"
                     />
                   </div>
                   <p className="mt-2 text-xs text-white/55">
@@ -321,7 +367,7 @@ export default async function DjBookingPage({
                       name="location"
                       placeholder="City / State"
                       required
-                      className="w-full rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-base text-white/90 placeholder:text-white/35 shadow-[0_0_0_1px_rgba(255,255,255,0.03)] outline-none focus:ring-2 focus:ring-violet-400/40 sm:text-sm"
+                      className="w-full rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white/90 placeholder:text-white/35 shadow-[0_0_0_1px_rgba(255,255,255,0.03)] outline-none focus:ring-2 focus:ring-violet-400/40"
                     />
                   </div>
                   <p className="mt-2 text-xs text-white/55">
@@ -339,7 +385,7 @@ export default async function DjBookingPage({
                     name="message"
                     rows={6}
                     placeholder="Event type, venue, start time, set length, music style, equipment needs, etc."
-                    className="w-full rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-base text-white/90 placeholder:text-white/35 shadow-[0_0_0_1px_rgba(255,255,255,0.03)] outline-none focus:ring-2 focus:ring-violet-400/40 sm:text-sm"
+                    className="w-full rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white/90 placeholder:text-white/35 shadow-[0_0_0_1px_rgba(255,255,255,0.03)] outline-none focus:ring-2 focus:ring-violet-400/40"
                   />
                 </div>
 
