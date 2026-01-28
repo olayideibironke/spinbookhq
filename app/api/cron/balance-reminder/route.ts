@@ -4,6 +4,8 @@ import { createClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
 
+const COMPANY_BCC = "spinbookhq@gmail.com";
+
 function buildOrigin() {
   return (
     process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ||
@@ -50,6 +52,7 @@ async function getAuthEmailByUserId(
   if (!uid) return null;
 
   try {
+    // Requires service role key
     const { data, error } = await sb.auth.admin.getUserById(uid);
     if (error) {
       console.warn("[SpinBookHQ] auth.admin.getUserById error:", error.message);
@@ -82,8 +85,8 @@ async function sendEmailBalanceReminder(args: {
 
   if (!apiKey || !from) {
     const msg =
-      "Resend env missing: set RESEND_API_KEY and RESEND_FROM_EMAIL to enable reminder emails.";
-    console.warn("[SpinBookHQ]", msg);
+      "Missing RESEND_API_KEY or RESEND_FROM_EMAIL (Vercel Production env).";
+    console.warn("[SpinBookHQ] Reminder email not sent:", msg);
     return { ok: false as const, error: msg };
   }
 
@@ -92,7 +95,7 @@ async function sendEmailBalanceReminder(args: {
 
   const subject =
     args.recipientType === "dj"
-      ? `Reminder: client balance due in 7 days (booking ${args.bookingId})`
+      ? `Reminder: balance due in 7 days (booking)`
       : `Reminder: balance due in 7 days for your DJ booking`;
 
   const quotedLine =
@@ -102,32 +105,23 @@ async function sendEmailBalanceReminder(args: {
         )}</div>`
       : "";
 
-  const intro =
+  const introLine =
     args.recipientType === "dj"
-      ? `
-        <p style="margin:0 0 12px 0;">
-          Hello,<br/>
-          This is a reminder that the event for <strong>${escapeHtml(
-            args.requesterName || "your client"
-          )}</strong> is in <strong>7 days</strong>.
-          Please ensure the remaining balance is collected before the deadline.
-        </p>
-      `
-      : `
-        <p style="margin:0 0 12px 0;">
-          Hi ${escapeHtml(args.requesterName || "there")},<br/>
-          Your event with <strong>${escapeHtml(
-            args.djName
-          )}</strong> is in <strong>7 days</strong>.
-          Please pay the <strong>remaining balance</strong> directly to the DJ before the deadline.
-        </p>
-      `;
+      ? `<p style="margin:0 0 12px 0;">
+           Hello,<br/>
+           This is your 7-day reminder: the client must pay the <strong>remaining balance</strong> before the deadline.
+         </p>`
+      : `<p style="margin:0 0 12px 0;">
+           Hi ${escapeHtml(args.requesterName || "there")},<br/>
+           Your event with <strong>${escapeHtml(args.djName)}</strong> is in <strong>7 days</strong>.
+           Please pay the <strong>remaining balance</strong> directly to the DJ before the deadline.
+         </p>`;
 
   const html = `
   <div style="font-family:ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; line-height:1.5; color:#0b0b0f;">
     <h2 style="margin:0 0 12px 0;">Balance reminder ⏳</h2>
 
-    ${intro}
+    ${introLine}
 
     <div style="border:1px solid #e6e6ef; border-radius:14px; padding:14px; background:#fafafe; margin:14px 0;">
       <div><strong>Booking reference:</strong> ${escapeHtml(args.bookingId)}</div>
@@ -137,7 +131,7 @@ async function sendEmailBalanceReminder(args: {
     </div>
 
     <p style="margin:0 0 12px 0;">
-      Track booking status here:<br/>
+      Track this booking anytime:<br/>
       <a href="${escapeAttr(statusUrl)}">${escapeHtml(statusUrl)}</a>
     </p>
 
@@ -163,7 +157,7 @@ async function sendEmailBalanceReminder(args: {
       body: JSON.stringify({
         from,
         to: args.to,
-        bcc: ["spinbookhq@gmail.com"], // ✅ compulsory company visibility
+        bcc: [COMPANY_BCC], // ✅ compulsory company visibility
         subject,
         html,
       }),
@@ -229,20 +223,24 @@ export async function GET(req: Request) {
 
   if (error) {
     console.warn("[SpinBookHQ] reminder query failed:", error);
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: error.message },
+      { status: 500 }
+    );
   }
 
   let sent = 0;
-  let attempted = 0;
+  let skipped = 0;
+  let failed = 0;
 
   for (const r of rows ?? []) {
     const requesterTo = String(r.requester_email ?? "").trim();
-    if (!requesterTo) continue;
-
     const publicToken = String(r.public_token ?? "").trim();
-    if (!publicToken) continue;
 
-    attempted += 1;
+    if (!requesterTo || !publicToken) {
+      skipped += 1;
+      continue;
+    }
 
     // DJ name
     let djName = "DJ";
@@ -255,10 +253,16 @@ export async function GET(req: Request) {
       djName = String(djProfile?.stage_name ?? "DJ").trim();
     }
 
-    // DJ email (auth)
-    const djEmail = r.dj_user_id ? await getAuthEmailByUserId(sb, r.dj_user_id) : null;
+    // DJ email (auth email)
+    const djEmail = await getAuthEmailByUserId(sb, String(r.dj_user_id ?? ""));
 
-    // Send requester
+    const sendResults: Array<{
+      ok: boolean;
+      who: "requester" | "dj";
+      error?: string;
+    }> = [];
+
+    // requester email (required)
     const requesterRes = await sendEmailBalanceReminder({
       to: requesterTo,
       recipientType: "requester",
@@ -270,9 +274,13 @@ export async function GET(req: Request) {
       publicToken,
       bookingId: String(r.id),
     });
+    sendResults.push({
+      ok: requesterRes.ok,
+      who: "requester",
+      ...(requesterRes.ok ? {} : { error: requesterRes.error }),
+    });
 
-    // Send DJ (optional if email exists)
-    let djResOk = true;
+    // DJ email (optional — if we can’t find it, we still allow marking as sent)
     if (djEmail) {
       const djRes = await sendEmailBalanceReminder({
         to: djEmail,
@@ -285,13 +293,19 @@ export async function GET(req: Request) {
         publicToken,
         bookingId: String(r.id),
       });
-      djResOk = djRes.ok;
+      sendResults.push({
+        ok: djRes.ok,
+        who: "dj",
+        ...(djRes.ok ? {} : { error: djRes.error }),
+      });
     }
 
-    const requesterOk = requesterRes.ok;
+    const requesterOk = sendResults.some((x) => x.who === "requester" && x.ok);
+    const djAttempted = sendResults.some((x) => x.who === "dj");
+    const djOk = !djAttempted || sendResults.some((x) => x.who === "dj" && x.ok);
 
-    // Only mark sent when requester email succeeded AND DJ email succeeded (if attempted)
-    if (requesterOk && djResOk) {
+    // ✅ Only mark sent_at if requester succeeded AND (dj succeeded OR no dj email exists)
+    if (requesterOk && djOk) {
       await sb
         .from("booking_requests")
         .update({ balance_reminder_sent_at: new Date().toISOString() })
@@ -299,17 +313,16 @@ export async function GET(req: Request) {
 
       sent += 1;
     } else {
-      console.warn("[SpinBookHQ] Reminder email not fully sent:", {
-        id: r.id,
-        requesterOk,
-        djResOk,
+      failed += 1;
+      console.warn("[SpinBookHQ] Email #5 not fully sent:", {
+        bookingId: r.id,
+        results: sendResults,
       });
-      // ✅ Do NOT mark sent_at, so cron can retry next run.
     }
   }
 
   return NextResponse.json(
-    { ok: true, target: targetStr, attempted, sent },
+    { ok: true, target: targetStr, sent, skipped, failed },
     { status: 200 }
   );
 }
