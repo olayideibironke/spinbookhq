@@ -74,7 +74,7 @@ export default function Home() {
 
             <p className="mx-auto mt-6 max-w-2xl text-pretty text-base leading-relaxed text-white/70 md:text-lg">
               {APP_NAME} is a premium DJ marketplace connecting clients with
-              verified DJs for weddings, parties, and corporate events — anywhere.
+              verified DJs for weddings, parties, and corporate events anywhere.
               Clean profiles, fast responses, and secure deposits.
             </p>
           </div>
