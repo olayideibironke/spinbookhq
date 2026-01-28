@@ -1,182 +1,274 @@
 // FILE: app/api/stripe/webhook/route.ts
 import { NextResponse } from "next/server";
-import Stripe from "stripe";
-import { createClient } from "@/lib/supabase/server";
+import crypto from "crypto";
+import { createClient } from "@supabase/supabase-js";
+import type Stripe from "stripe";
+import { stripe } from "@/lib/stripe";
 
 export const dynamic = "force-dynamic";
 
-let stripeSingleton: Stripe | null = null;
-
-function getStripe() {
-  const key = process.env.STRIPE_SECRET_KEY;
-  if (!key) {
-    throw new Error("Missing STRIPE_SECRET_KEY in environment variables.");
-  }
-
-  if (!stripeSingleton) {
-    stripeSingleton = new Stripe(key, {
-      apiVersion: "2025-12-15.clover",
-    });
-  }
-
-  return stripeSingleton;
+function buildOrigin() {
+  return (
+    process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ||
+    "http://localhost:3000"
+  );
 }
 
-function calcPlatformFeeTotal(quotedTotal: number) {
-  // 10% of declared final price
-  return Math.ceil(quotedTotal * 0.1);
+function escapeHtml(input: string) {
+  return String(input ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }
 
-function clampNonNegative(n: number) {
-  return n > 0 ? n : 0;
+function escapeAttr(input: string) {
+  return escapeHtml(input).replaceAll("`", "&#96;");
+}
+
+function formatUsd(amount: number) {
+  return amount.toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  });
+}
+
+function generatePublicToken() {
+  return crypto.randomBytes(32).toString("hex");
+}
+
+function getSupabaseAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url) throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL");
+  if (!serviceKey) throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY");
+
+  return createClient(url, serviceKey, {
+    auth: { persistSession: false },
+  });
+}
+
+async function sendEmailDepositReceived(args: {
+  to: string;
+  requesterName: string;
+  djName: string;
+  eventDate: string;
+  eventLocation: string;
+  quotedTotal?: number | null;
+  bookingId: string;
+  publicToken: string;
+}) {
+  const apiKey = process.env.RESEND_API_KEY;
+  const from = process.env.RESEND_FROM_EMAIL;
+
+  // Don’t break webhook if email env isn’t set.
+  if (!apiKey || !from) {
+    console.warn(
+      "[SpinBookHQ] Resend env missing: set RESEND_API_KEY and RESEND_FROM_EMAIL to enable deposit-received emails."
+    );
+    return;
+  }
+
+  const origin = buildOrigin();
+  const statusUrl = `${origin}/r/${encodeURIComponent(args.publicToken)}`;
+
+  const subject = `Deposit received — your DJ is locked in ✅`;
+
+  const quotedLine =
+    args.quotedTotal != null && Number.isFinite(Number(args.quotedTotal))
+      ? `<div><strong>Agreed total price:</strong> ${formatUsd(
+          Number(args.quotedTotal)
+        )}</div>`
+      : "";
+
+  const html = `
+  <div style="font-family:ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; line-height:1.5; color:#0b0b0f;">
+    <h2 style="margin:0 0 12px 0;">Deposit received ✅</h2>
+
+    <p style="margin:0 0 12px 0;">
+      Hi ${escapeHtml(args.requesterName || "there")},<br/>
+      We’ve received your <strong>${formatUsd(200)}</strong> deposit. Your booking request is now <strong>confirmed</strong> with
+      <strong>${escapeHtml(args.djName)}</strong>.
+    </p>
+
+    <div style="border:1px solid #e6e6ef; border-radius:14px; padding:14px; background:#fafafe; margin:14px 0;">
+      <div><strong>Booking reference:</strong> ${escapeHtml(args.bookingId)}</div>
+      ${quotedLine}
+      <div><strong>Event date:</strong> ${escapeHtml(args.eventDate)}</div>
+      <div><strong>Location:</strong> ${escapeHtml(args.eventLocation)}</div>
+      <div style="margin-top:8px;"><strong>Deposit:</strong> ${formatUsd(200)} (non-refundable)</div>
+    </div>
+
+    <p style="margin:0 0 12px 0;">
+      Track your booking status anytime (no account required):<br/>
+      <a href="${escapeAttr(statusUrl)}">${escapeHtml(statusUrl)}</a>
+    </p>
+
+    <p style="margin:14px 0 0 0; font-size:12px; color:#4b5563;">
+      Reminder: Please pay the remaining balance to the DJ <strong>7 days before the event</strong>. If not paid, the deposit is forfeited and the DJ may cancel.
+    </p>
+
+    <hr style="border:none; border-top:1px solid #e6e6ef; margin:16px 0;" />
+    <p style="margin:0; font-size:12px; color:#6b7280;">
+      SpinBook HQ • Secure bookings for premium DJs
+    </p>
+  </div>
+  `;
+
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from,
+      to: args.to,
+      subject,
+      html,
+    }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    console.warn("[SpinBookHQ] Resend send failed:", res.status, text);
+  }
 }
 
 export async function POST(req: Request) {
-  try {
-    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
-    if (!webhookSecret) {
-      return NextResponse.json(
-        { error: "Missing STRIPE_WEBHOOK_SECRET in environment variables." },
-        { status: 500 }
-      );
-    }
+  const secret = process.env.STRIPE_WEBHOOK_SECRET;
 
-    const stripe = getStripe();
-
-    const sig = req.headers.get("stripe-signature");
-    if (!sig) {
-      return NextResponse.json(
-        { error: "Missing stripe-signature header." },
-        { status: 400 }
-      );
-    }
-
-    const rawBody = await req.text();
-
-    let event: Stripe.Event;
-    try {
-      event = stripe.webhooks.constructEvent(rawBody, sig, webhookSecret);
-    } catch (err: any) {
-      const message =
-        typeof err?.message === "string" ? err.message : "Webhook signature error";
-      return NextResponse.json({ error: message }, { status: 400 });
-    }
-
-    // We only finalize the deposit when checkout session completes successfully.
-    if (
-      event.type === "checkout.session.completed" ||
-      event.type === "checkout.session.async_payment_succeeded"
-    ) {
-      const session = event.data.object as Stripe.Checkout.Session;
-
-      // Pull booking_request_id + quoted_total from metadata
-      const requestId = String(session?.metadata?.booking_request_id ?? "").trim();
-      const quotedTotalRaw = String(session?.metadata?.quoted_total ?? "").trim();
-
-      // Defensive parsing
-      const quotedTotal = Number(quotedTotalRaw);
-      const quotedTotalValid =
-        Number.isFinite(quotedTotal) && quotedTotal > 0 ? Math.floor(quotedTotal) : null;
-
-      // Deposit must be exactly $200.00
-      const amountTotal = typeof session.amount_total === "number" ? session.amount_total : null;
-      const currency = String(session.currency ?? "").toLowerCase();
-
-      // If this isn't our booking deposit, ignore safely
-      if (!requestId) {
-        return NextResponse.json({ received: true });
-      }
-
-      // If Stripe sends currency/amount we don't expect, do not mark paid.
-      // (Still return 200 so Stripe doesn't keep retrying forever.)
-      if (currency !== "usd" || amountTotal !== 20000) {
-        return NextResponse.json({
-          received: true,
-          ignored: true,
-          reason: "Unexpected deposit amount or currency",
-        });
-      }
-
-      const supabase = await createClient();
-
-      // Load current booking request to prevent double-processing
-      const { data: existing, error: existingErr } = await supabase
-        .from("booking_requests")
-        .select(
-          "id, deposit_paid, status, quoted_total, platform_fee_total, platform_fee_paid, fee_status"
-        )
-        .eq("id", requestId)
-        .maybeSingle<{
-          id: string;
-          deposit_paid: boolean;
-          status: string | null;
-          quoted_total: number | null;
-          platform_fee_total: number | null;
-          platform_fee_paid: number | null;
-          fee_status: string | null;
-        }>();
-
-      if (existingErr || !existing) {
-        return NextResponse.json({ received: true, ignored: true, reason: "Request not found" });
-      }
-
-      // If already marked paid, idempotent exit
-      if (existing.deposit_paid) {
-        return NextResponse.json({ received: true, ok: true, idempotent: true });
-      }
-
-      // Prefer DB quoted_total, but allow metadata if DB is empty (shouldn't happen in your flow)
-      const finalQuoted =
-        typeof existing.quoted_total === "number" && existing.quoted_total > 0
-          ? Math.floor(existing.quoted_total)
-          : quotedTotalValid;
-
-      // If we still can't compute final price, we can still mark deposit paid,
-      // but fee math may remain incomplete.
-      const platformFeeTotal =
-        finalQuoted != null ? calcPlatformFeeTotal(finalQuoted) : existing.platform_fee_total;
-
-      // Deposit split bookkeeping:
-      // - $80 to SpinBook (counts as platform fee paid)
-      // - $120 to DJ (informational; no DB field right now)
-      const platformFeePaid = 80;
-
-      const computedFeeDue =
-        platformFeeTotal != null ? clampNonNegative(platformFeeTotal - platformFeePaid) : null;
-
-      const feeStatus =
-        platformFeeTotal == null
-          ? existing.fee_status ?? "unknown"
-          : computedFeeDue != null && computedFeeDue > 0
-          ? "due"
-          : "ok";
-
-      // Update booking request
-      await supabase
-        .from("booking_requests")
-        .update({
-          deposit_paid: true,
-          deposit_paid_at: new Date().toISOString(),
-
-          // Lock in fee bookkeeping (based on your rules)
-          ...(finalQuoted != null ? { quoted_total: finalQuoted } : {}),
-          ...(platformFeeTotal != null ? { platform_fee_total: platformFeeTotal } : {}),
-          platform_fee_paid: platformFeePaid,
-          fee_status: feeStatus,
-
-          // Keep session id if present (useful for support/debug)
-          stripe_checkout_session_id: session.id ?? existing.id,
-        })
-        .eq("id", requestId);
-
-      return NextResponse.json({ received: true, ok: true });
-    }
-
-    // Ignore all other events for now
-    return NextResponse.json({ received: true });
-  } catch (err: any) {
-    const message =
-      typeof err?.message === "string" ? err.message : "Stripe webhook error";
-    return NextResponse.json({ error: message }, { status: 500 });
+  if (!secret) {
+    return NextResponse.json(
+      { error: "Missing STRIPE_WEBHOOK_SECRET" },
+      { status: 500 }
+    );
   }
+
+  const signature = req.headers.get("stripe-signature");
+  if (!signature) {
+    return NextResponse.json(
+      { error: "Missing stripe-signature header" },
+      { status: 400 }
+    );
+  }
+
+  let event: Stripe.Event;
+
+  try {
+    const rawBody = await req.text();
+    event = stripe.webhooks.constructEvent(rawBody, signature, secret);
+  } catch (err: any) {
+    console.warn("[SpinBookHQ] Webhook signature verification failed:", err);
+    return NextResponse.json(
+      { error: "Invalid signature" },
+      { status: 400 }
+    );
+  }
+
+  // Only handle what we need.
+  if (event.type !== "checkout.session.completed") {
+    return NextResponse.json({ received: true }, { status: 200 });
+  }
+
+  const session = event.data.object as Stripe.Checkout.Session;
+
+  // Must be a paid session.
+  const paid =
+    session.payment_status === "paid" ||
+    // fallback for older variants
+    (session as any).paid === true;
+
+  if (!paid) {
+    return NextResponse.json({ received: true }, { status: 200 });
+  }
+
+  const bookingId = String(session.metadata?.booking_request_id ?? "").trim();
+  if (!bookingId) {
+    console.warn("[SpinBookHQ] Missing booking_request_id in session metadata");
+    return NextResponse.json({ received: true }, { status: 200 });
+  }
+
+  const sb = getSupabaseAdmin();
+
+  // Fetch request row to determine whether to update + email.
+  const { data: reqRow, error: reqErr } = await sb
+    .from("booking_requests")
+    .select(
+      "id, requester_email, requester_name, event_date, event_location, quoted_total, deposit_paid, public_token, dj_user_id, stripe_checkout_session_id"
+    )
+    .eq("id", bookingId)
+    .maybeSingle<{
+      id: string;
+      requester_email: string;
+      requester_name: string;
+      event_date: string;
+      event_location: string;
+      quoted_total: number | null;
+      deposit_paid: boolean | null;
+      public_token: string | null;
+      dj_user_id: string;
+      stripe_checkout_session_id: string | null;
+    }>();
+
+  if (reqErr || !reqRow) {
+    console.warn("[SpinBookHQ] booking_requests not found:", bookingId, reqErr);
+    return NextResponse.json({ received: true }, { status: 200 });
+  }
+
+  // Idempotency: if already marked paid, do nothing (prevents duplicate emails)
+  if (reqRow.deposit_paid === true) {
+    return NextResponse.json({ received: true }, { status: 200 });
+  }
+
+  // Ensure public token exists for public tracking (non-registered user flow)
+  let publicToken = String(reqRow.public_token ?? "").trim();
+  if (!publicToken) {
+    publicToken = generatePublicToken();
+  }
+
+  // Update DB: deposit_paid + time + session id + token
+  const nowIso = new Date().toISOString();
+
+  await sb
+    .from("booking_requests")
+    .update({
+      deposit_paid: true,
+      deposit_paid_at: nowIso,
+      public_token: publicToken,
+      stripe_checkout_session_id: reqRow.stripe_checkout_session_id ?? session.id,
+    })
+    .eq("id", bookingId);
+
+  // Lookup DJ name for email
+  let djName = "DJ";
+  if (reqRow.dj_user_id) {
+    const { data: djProfile } = await sb
+      .from("dj_profiles")
+      .select("stage_name")
+      .eq("user_id", reqRow.dj_user_id)
+      .maybeSingle<{ stage_name: string | null }>();
+
+    djName = String(djProfile?.stage_name ?? "DJ").trim();
+  }
+
+  // Email #3: deposit received
+  const to = String(reqRow.requester_email ?? "").trim();
+  if (to) {
+    await sendEmailDepositReceived({
+      to,
+      requesterName: String(reqRow.requester_name ?? "").trim(),
+      djName,
+      eventDate: String(reqRow.event_date ?? "").trim(),
+      eventLocation: String(reqRow.event_location ?? "").trim(),
+      quotedTotal: reqRow.quoted_total ?? null,
+      bookingId,
+      publicToken,
+    });
+  }
+
+  return NextResponse.json({ received: true }, { status: 200 });
 }
