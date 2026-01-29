@@ -1,9 +1,7 @@
-// FILE: app/dj/[slug]/book/page.tsx
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { buildPublicRequestUrl, requestSentEmail, sendEmail } from "@/lib/email";
-import { createClient as createAdminClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
 
@@ -46,16 +44,8 @@ function makeToken() {
     .join("");
 }
 
-function getSupabaseAdmin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!url) throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL");
-  if (!serviceKey) throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY");
-
-  return createAdminClient(url, serviceKey, {
-    auth: { persistSession: false },
-  });
+function safeReason(code: string) {
+  return encodeURIComponent(String(code ?? "").slice(0, 120));
 }
 
 export default async function DjBookingPage({
@@ -68,7 +58,7 @@ export default async function DjBookingPage({
   const { slug } = await params;
   const sp = await searchParams;
   const ok = sp?.ok;
-  const reason = (sp?.reason ?? "").trim();
+  const reason = String(sp?.reason ?? "").trim();
 
   const supabase = await createClient();
 
@@ -107,19 +97,18 @@ export default async function DjBookingPage({
 
     const name = String(formData.get("name") ?? "").trim();
     const email = String(formData.get("email") ?? "").trim();
-    const eventDate = String(formData.get("event_date") ?? "").trim();
+    const eventDate = String(formData.get("event_date") ?? "").trim(); // YYYY-MM-DD from <input type="date">
     const location = String(formData.get("location") ?? "").trim();
     const message = String(formData.get("message") ?? "").trim();
 
     if (!name || !email || !eventDate || !location) {
-      redirect(`/dj/${slug}/book?ok=0&reason=missing_fields`);
+      redirect(`/dj/${slug}/book?ok=0&reason=${safeReason("missing_fields")}`);
     }
 
     if (!isValidEmail(email)) {
-      redirect(`/dj/${slug}/book?ok=0&reason=invalid_email`);
+      redirect(`/dj/${slug}/book?ok=0&reason=${safeReason("invalid_email")}`);
     }
 
-    // Use normal server client for reading DJ (safe)
     const sb = await createClient();
 
     const { data: djRow, error: djRowErr } = await sb
@@ -133,49 +122,53 @@ export default async function DjBookingPage({
       }>();
 
     if (djRowErr || !djRow || djRow.published !== true) {
-      redirect(`/dj/${slug}/book?ok=0&reason=dj_not_published`);
+      redirect(`/dj/${slug}/book?ok=0&reason=${safeReason("dj_not_published")}`);
     }
 
     const public_token = makeToken();
 
-    // ✅ PRO FIX: create booking request using SERVICE ROLE (bypasses RLS safely)
-    let inserted: { id: string; public_token: string | null } | null = null;
-
-    try {
-      const admin = getSupabaseAdmin();
-
-      const { data, error: insertErr } = await admin
-        .from("booking_requests")
-        .insert({
-          dj_user_id: djRow.user_id,
-          requester_name: name,
-          requester_email: email,
-          event_date: eventDate, // Postgres will cast YYYY-MM-DD into date
-          event_location: location,
-          message: message ? message : null,
-          status: "new",
-          public_token,
-        })
-        .select("id, public_token")
-        .maybeSingle<{ id: string; public_token: string | null }>();
-
-      if (insertErr || !data?.id || !data.public_token) {
-        console.warn("[SpinBookHQ] booking_requests insert failed:", insertErr);
-        redirect(`/dj/${slug}/book?ok=0&reason=insert_failed`);
+    // ✅ CRITICAL: Use SECURITY DEFINER RPC to bypass anon RLS insert issues safely.
+    const { data: rpcData, error: rpcErr } = await sb.rpc(
+      "create_booking_request",
+      {
+        p_dj_user_id: djRow.user_id,
+        p_requester_name: name,
+        p_requester_email: email,
+        p_event_date: eventDate, // Postgres will coerce to date because function param is date
+        p_event_location: location,
+        p_message: message || null,
+        p_public_token: public_token,
       }
+    );
 
-      inserted = data;
-    } catch (e: any) {
-      console.warn(
-        "[SpinBookHQ] booking_requests admin insert exception:",
-        String(e?.message ?? e)
-      );
-      redirect(`/dj/${slug}/book?ok=0&reason=insert_failed`);
+    const inserted = Array.isArray(rpcData) ? rpcData[0] : rpcData;
+
+    if (rpcErr || !inserted?.id || !inserted?.public_token) {
+      const code = String((rpcErr as any)?.code ?? "").trim();
+      const msg = String((rpcErr as any)?.message ?? "").trim();
+
+      // Give a helpful reason without leaking huge details
+      const reasonCode =
+        code === "42501"
+          ? "rls_denied"
+          : msg.includes("event_date_required")
+          ? "event_date_required"
+          : msg.includes("requester_email_required")
+          ? "requester_email_required"
+          : msg.includes("requester_name_required")
+          ? "requester_name_required"
+          : msg.includes("event_location_required")
+          ? "event_location_required"
+          : msg.includes("dj_user_id_required")
+          ? "dj_user_id_required"
+          : "insert_failed";
+
+      redirect(`/dj/${slug}/book?ok=0&reason=${safeReason(reasonCode)}`);
     }
 
-    // Email #1 — Request sent (only mark sent_at if email succeeds)
+    // Email #1 — Request received (only mark sent if success)
     try {
-      const tokenUrl = buildPublicRequestUrl(inserted.public_token);
+      const tokenUrl = buildPublicRequestUrl(String(inserted.public_token));
       await sendEmail(
         requestSentEmail({
           to: email,
@@ -183,23 +176,15 @@ export default async function DjBookingPage({
           eventDate,
           eventLocation: location,
           tokenUrl,
-          // NOTE: bcc is handled inside lib/email OR by sendEmail wrapper.
-          // If it is NOT currently bcc-ing, we will enforce it in lib/email next.
         })
       );
 
-      // ✅ Mark sent_at using service role (bypasses RLS safely)
-      const admin = getSupabaseAdmin();
-      await admin
+      await sb
         .from("booking_requests")
         .update({ request_email_sent_at: new Date().toISOString() })
-        .eq("id", inserted.id);
-    } catch (e: any) {
+        .eq("id", String(inserted.id));
+    } catch {
       // Non-blocking: request still created successfully
-      console.warn(
-        "[SpinBookHQ] Email #1 send failed:",
-        String(e?.message ?? e)
-      );
     }
 
     redirect(`/dj/${slug}/book?ok=1`);
@@ -213,16 +198,6 @@ export default async function DjBookingPage({
 
   const showSuccess = ok === "1";
   const showError = ok === "0";
-
-  // Extra debug-friendly UX for the banner (kept subtle/premium)
-  const errorHint =
-    reason === "insert_failed"
-      ? "We couldn’t create the request. Please try again in a moment."
-      : reason === "invalid_email"
-      ? "Please enter a valid email address."
-      : reason === "missing_fields"
-      ? "Please fill out name, email, date, and location."
-      : "Please check the required fields and try again.";
 
   return (
     <main className="p-6">
@@ -336,7 +311,16 @@ export default async function DjBookingPage({
             <div className="text-base font-extrabold text-red-100">
               Something went wrong
             </div>
-            <p className="mt-2 text-sm text-red-100/80">{errorHint}</p>
+            <p className="mt-2 text-sm text-red-100/80">
+              Please check the required fields (name, email, date, location) and
+              try again.
+            </p>
+
+            {reason ? (
+              <p className="mt-3 text-xs text-red-100/70">
+                Error code: <span className="font-mono">{reason}</span>
+              </p>
+            ) : null}
           </div>
         )}
 
