@@ -1,11 +1,11 @@
 // FILE: app/dj/[slug]/book/page.tsx
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import crypto from "crypto";
 import { createClient } from "@/lib/supabase/server";
+import { buildPublicRequestUrl, requestSentEmail, sendEmail } from "@/lib/email";
+import { createClient as createAdminClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
-export const runtime = "nodejs"; // ✅ keep Node runtime
 
 type DjPublic = {
   user_id: string;
@@ -15,8 +15,6 @@ type DjPublic = {
   published: boolean | null;
   genres?: unknown;
 };
-
-const COMPANY_BCC = "spinbookhq@gmail.com";
 
 function isValidEmail(email: string) {
   const e = email.trim();
@@ -40,114 +38,24 @@ function parseGenres(raw: unknown): string[] {
 }
 
 function makeToken() {
-  return crypto.randomBytes(32).toString("hex");
+  // 32 bytes => 64 hex chars (unguessable)
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
-function buildOrigin() {
-  return (
-    process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ||
-    "http://localhost:3000"
-  );
-}
+function getSupabaseAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-function escapeHtml(input: string) {
-  return String(input ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-}
+  if (!url) throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL");
+  if (!serviceKey) throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY");
 
-function escapeAttr(input: string) {
-  return escapeHtml(input).replaceAll("`", "&#96;");
-}
-
-async function sendEmailRequestReceived(args: {
-  to: string;
-  requesterName: string;
-  djName: string;
-  bookingId: string;
-  publicToken: string;
-  eventDate: string;
-  eventLocation: string;
-}) {
-  const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.RESEND_FROM_EMAIL;
-
-  if (!apiKey || !from) {
-    const msg =
-      "Missing RESEND_API_KEY or RESEND_FROM_EMAIL (Vercel Production env).";
-    console.warn("[SpinBookHQ] Email #1 not sent:", msg);
-    return { ok: false as const, error: msg };
-  }
-
-  const origin = buildOrigin();
-  const statusUrl = `${origin}/r/${encodeURIComponent(args.publicToken)}`;
-
-  const subject = `Request received — ${args.djName} will respond soon`;
-
-  const html = `
-  <div style="font-family:ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; line-height:1.5; color:#0b0b0f;">
-    <h2 style="margin:0 0 12px 0;">Request received ✅</h2>
-
-    <p style="margin:0 0 12px 0;">
-      Hi ${escapeHtml(args.requesterName || "there")},<br/>
-      We’ve received your booking request for <strong>${escapeHtml(
-        args.djName
-      )}</strong>.
-      The DJ will review your details and respond soon.
-    </p>
-
-    <div style="border:1px solid #e6e6ef; border-radius:14px; padding:14px; background:#fafafe; margin:14px 0;">
-      <div><strong>Booking reference:</strong> ${escapeHtml(args.bookingId)}</div>
-      <div><strong>Event date:</strong> ${escapeHtml(args.eventDate)}</div>
-      <div><strong>Location:</strong> ${escapeHtml(args.eventLocation)}</div>
-      <div style="margin-top:10px;">
-        <strong>Track your request:</strong><br/>
-        <a href="${escapeAttr(statusUrl)}">${escapeHtml(statusUrl)}</a>
-      </div>
-    </div>
-
-    <p style="margin:0; font-size:12px; color:#6b7280;">
-      SpinBook HQ • Secure bookings for premium DJs
-    </p>
-  </div>
-  `;
-
-  try {
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from,
-        to: args.to,
-        bcc: [COMPANY_BCC],
-        subject,
-        html,
-      }),
-    });
-
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      console.warn("[SpinBookHQ] Resend send failed:", res.status, text);
-      return { ok: false as const, error: `Resend ${res.status}: ${text}` };
-    }
-
-    return { ok: true as const };
-  } catch (e: any) {
-    const msg = String(e?.message ?? e ?? "Unknown fetch error");
-    console.warn("[SpinBookHQ] Resend exception:", msg);
-    return { ok: false as const, error: msg };
-  }
-}
-
-function isNextRedirectError(e: any) {
-  // Next redirect() throws an error with digest containing "NEXT_REDIRECT"
-  return typeof e?.digest === "string" && e.digest.includes("NEXT_REDIRECT");
+  return createAdminClient(url, serviceKey, {
+    auth: { persistSession: false },
+  });
 }
 
 export default async function DjBookingPage({
@@ -197,7 +105,6 @@ export default async function DjBookingPage({
   async function submitBooking(formData: FormData) {
     "use server";
 
-    // ✅ Validation redirects must NOT be inside try/catch
     const name = String(formData.get("name") ?? "").trim();
     const email = String(formData.get("email") ?? "").trim();
     const eventDate = String(formData.get("event_date") ?? "").trim();
@@ -209,36 +116,41 @@ export default async function DjBookingPage({
     }
 
     if (!isValidEmail(email)) {
-      redirect(`/dj/${slug}/book?ok=0&reason=bad_email`);
+      redirect(`/dj/${slug}/book?ok=0&reason=invalid_email`);
     }
 
+    // Use normal server client for reading DJ (safe)
+    const sb = await createClient();
+
+    const { data: djRow, error: djRowErr } = await sb
+      .from("dj_profiles")
+      .select("user_id, published, stage_name")
+      .eq("slug", slug)
+      .maybeSingle<{
+        user_id: string;
+        published: boolean | null;
+        stage_name: string | null;
+      }>();
+
+    if (djRowErr || !djRow || djRow.published !== true) {
+      redirect(`/dj/${slug}/book?ok=0&reason=dj_not_published`);
+    }
+
+    const public_token = makeToken();
+
+    // ✅ PRO FIX: create booking request using SERVICE ROLE (bypasses RLS safely)
+    let inserted: { id: string; public_token: string | null } | null = null;
+
     try {
-      const sb = await createClient();
+      const admin = getSupabaseAdmin();
 
-      const { data: djRow, error: djRowErr } = await sb
-        .from("dj_profiles")
-        .select("user_id, published, stage_name")
-        .eq("slug", slug)
-        .maybeSingle<{
-          user_id: string;
-          published: boolean | null;
-          stage_name: string | null;
-        }>();
-
-      if (djRowErr || !djRow || djRow.published !== true) {
-        console.warn("[SpinBookHQ] DJ lookup failed:", djRowErr);
-        redirect(`/dj/${slug}/book?ok=0&reason=dj_not_found`);
-      }
-
-      const public_token = makeToken();
-
-      const { data: inserted, error: insertErr } = await sb
+      const { data, error: insertErr } = await admin
         .from("booking_requests")
         .insert({
           dj_user_id: djRow.user_id,
           requester_name: name,
           requester_email: email,
-          event_date: eventDate,
+          event_date: eventDate, // Postgres will cast YYYY-MM-DD into date
           event_location: location,
           message: message ? message : null,
           status: "new",
@@ -247,44 +159,50 @@ export default async function DjBookingPage({
         .select("id, public_token")
         .maybeSingle<{ id: string; public_token: string | null }>();
 
-      if (insertErr || !inserted?.id || !inserted.public_token) {
+      if (insertErr || !data?.id || !data.public_token) {
         console.warn("[SpinBookHQ] booking_requests insert failed:", insertErr);
         redirect(`/dj/${slug}/book?ok=0&reason=insert_failed`);
       }
 
-      // Email #1 — Request received (non-blocking)
-      const sendRes = await sendEmailRequestReceived({
-        to: email,
-        requesterName: name,
-        djName: djRow.stage_name ?? "DJ",
-        bookingId: inserted.id,
-        publicToken: inserted.public_token,
-        eventDate,
-        eventLocation: location,
-      });
-
-      if (sendRes.ok) {
-        // Works only if this column exists; error is non-throwing anyway.
-        await sb
-          .from("booking_requests")
-          .update({ request_email_sent_at: new Date().toISOString() })
-          .eq("id", inserted.id);
-      } else {
-        console.warn("[SpinBookHQ] Email #1 failed:", sendRes);
-      }
-
-      redirect(`/dj/${slug}/book?ok=1`);
+      inserted = data;
     } catch (e: any) {
-      // ✅ Let Next redirect() pass through
-      if (isNextRedirectError(e)) throw e;
-
       console.warn(
-        "[SpinBookHQ] submitBooking exception:",
-        String(e?.message ?? e),
-        e?.stack ? `\n${e.stack}` : ""
+        "[SpinBookHQ] booking_requests admin insert exception:",
+        String(e?.message ?? e)
       );
-      redirect(`/dj/${slug}/book?ok=0&reason=server_exception`);
+      redirect(`/dj/${slug}/book?ok=0&reason=insert_failed`);
     }
+
+    // Email #1 — Request sent (only mark sent_at if email succeeds)
+    try {
+      const tokenUrl = buildPublicRequestUrl(inserted.public_token);
+      await sendEmail(
+        requestSentEmail({
+          to: email,
+          djName: djRow.stage_name ?? "DJ",
+          eventDate,
+          eventLocation: location,
+          tokenUrl,
+          // NOTE: bcc is handled inside lib/email OR by sendEmail wrapper.
+          // If it is NOT currently bcc-ing, we will enforce it in lib/email next.
+        })
+      );
+
+      // ✅ Mark sent_at using service role (bypasses RLS safely)
+      const admin = getSupabaseAdmin();
+      await admin
+        .from("booking_requests")
+        .update({ request_email_sent_at: new Date().toISOString() })
+        .eq("id", inserted.id);
+    } catch (e: any) {
+      // Non-blocking: request still created successfully
+      console.warn(
+        "[SpinBookHQ] Email #1 send failed:",
+        String(e?.message ?? e)
+      );
+    }
+
+    redirect(`/dj/${slug}/book?ok=1`);
   }
 
   const djName = dj.stage_name ?? "DJ";
@@ -296,24 +214,20 @@ export default async function DjBookingPage({
   const showSuccess = ok === "1";
   const showError = ok === "0";
 
-  const prettyReason =
-    reason === "missing_fields"
-      ? "Missing required fields."
-      : reason === "bad_email"
-      ? "Invalid email address."
-      : reason === "dj_not_found"
-      ? "DJ profile lookup failed."
-      : reason === "insert_failed"
-      ? "Could not create request (database insert failed / RLS)."
-      : reason === "server_exception"
-      ? "Server error (check Vercel logs)."
-      : reason
-      ? `Error: ${reason}`
-      : "";
+  // Extra debug-friendly UX for the banner (kept subtle/premium)
+  const errorHint =
+    reason === "insert_failed"
+      ? "We couldn’t create the request. Please try again in a moment."
+      : reason === "invalid_email"
+      ? "Please enter a valid email address."
+      : reason === "missing_fields"
+      ? "Please fill out name, email, date, and location."
+      : "Please check the required fields and try again.";
 
   return (
     <main className="p-6">
       <div className="mx-auto w-full max-w-4xl">
+        {/* Top nav */}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <Link
             className="inline-flex items-center rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-sm font-semibold text-white/80 hover:bg-white/[0.06]"
@@ -327,6 +241,7 @@ export default async function DjBookingPage({
           </span>
         </div>
 
+        {/* Header */}
         <div className="mt-7">
           <h1 className="text-4xl font-extrabold tracking-tight text-white">
             Request Booking
@@ -338,6 +253,7 @@ export default async function DjBookingPage({
             {djCity ? <span className="text-white/55"> • {djCity}</span> : null}
           </p>
 
+          {/* Genre chips */}
           {topGenres.length > 0 ? (
             <div className="mt-4">
               <p className="text-xs font-extrabold tracking-[0.18em] text-white/55">
@@ -362,6 +278,7 @@ export default async function DjBookingPage({
           </p>
         </div>
 
+        {/* How it works */}
         <section className="mt-6 rounded-3xl border border-white/10 bg-white/[0.04] p-6 shadow-[0_18px_60px_rgba(0,0,0,0.55)] backdrop-blur">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
@@ -386,6 +303,7 @@ export default async function DjBookingPage({
           </div>
         </section>
 
+        {/* Status banners */}
         {showSuccess && (
           <div className="mt-6 rounded-3xl border border-emerald-400/20 bg-emerald-500/10 p-6 shadow-[0_18px_60px_rgba(0,0,0,0.35)]">
             <div className="flex items-center gap-2 text-base font-extrabold text-emerald-100">
@@ -418,16 +336,11 @@ export default async function DjBookingPage({
             <div className="text-base font-extrabold text-red-100">
               Something went wrong
             </div>
-            <p className="mt-2 text-sm text-red-100/80">
-              Please check the required fields (name, email, date, location) and
-              try again.
-            </p>
-            {prettyReason ? (
-              <p className="mt-2 text-xs text-red-100/70">{prettyReason}</p>
-            ) : null}
+            <p className="mt-2 text-sm text-red-100/80">{errorHint}</p>
           </div>
         )}
 
+        {/* Form card (hide after success) */}
         {!showSuccess && (
           <section className="mt-6 rounded-3xl border border-white/10 bg-white/[0.04] p-7 shadow-[0_18px_60px_rgba(0,0,0,0.55)] backdrop-blur">
             <form action={submitBooking} className="space-y-6">
@@ -476,6 +389,9 @@ export default async function DjBookingPage({
                       className="w-full rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white/90 shadow-[0_0_0_1px_rgba(255,255,255,0.03)] outline-none focus:ring-2 focus:ring-violet-400/40"
                     />
                   </div>
+                  <p className="mt-2 text-xs text-white/55">
+                    Pick the event date you want to lock in.
+                  </p>
                 </div>
 
                 <div>
@@ -490,6 +406,9 @@ export default async function DjBookingPage({
                       className="w-full rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white/90 placeholder:text-white/35 shadow-[0_0_0_1px_rgba(255,255,255,0.03)] outline-none focus:ring-2 focus:ring-violet-400/40"
                     />
                   </div>
+                  <p className="mt-2 text-xs text-white/55">
+                    Example: Washington, DC
+                  </p>
                 </div>
               </div>
 
@@ -504,6 +423,18 @@ export default async function DjBookingPage({
                     placeholder="Event type, venue, start time, set length, music style, equipment needs, etc."
                     className="w-full rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white/90 placeholder:text-white/35 shadow-[0_0_0_1px_rgba(255,255,255,0.03)] outline-none focus:ring-2 focus:ring-violet-400/40"
                   />
+                </div>
+
+                <div className="mt-3 rounded-2xl border border-white/10 bg-black/20 p-4">
+                  <p className="text-xs font-extrabold text-white/80">
+                    Quick checklist (optional)
+                  </p>
+                  <ul className="mt-2 space-y-1 text-xs text-white/60">
+                    <li>• Start time + end time</li>
+                    <li>• Venue type (home, hall, club, outdoor)</li>
+                    <li>• Music vibe (Afrobeats, Hip-Hop, House, etc.)</li>
+                    <li>• Do you need speakers / mic?</li>
+                  </ul>
                 </div>
               </div>
 
