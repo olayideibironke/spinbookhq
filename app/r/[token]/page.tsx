@@ -5,35 +5,42 @@ import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
+type PublicRequestRow = {
+  id: string;
+  status: string | null;
+  event_date: string | null;
+  event_location: string | null;
+  requester_name: string | null;
+  requester_email: string | null;
+  deposit_paid: boolean | null;
+  created_at: string | null;
+};
+
 export default async function PublicRequestPage({
   params,
 }: {
-  params: { token: string };
+  params: Promise<{ token: string }>;
 }) {
-  const token = String(params?.token ?? "").trim();
+  const { token } = await params;
 
-  if (!token) notFound();
+  const cleaned = String(token ?? "").trim();
+  if (!cleaned) notFound();
 
   const supabase = await createClient();
 
-  const { data: request, error } = await supabase
-    .from("booking_requests")
-    .select(
-      `
-      id,
-      status,
-      event_date,
-      event_location,
-      requester_name,
-      requester_email,
-      deposit_paid,
-      created_at
-    `
-    )
-    .eq("public_token", token)
-    .maybeSingle();
+  // ✅ Use SECURITY DEFINER RPC so anon users can view ONLY the row for this token
+  const { data: rpcData, error: rpcErr } = await supabase.rpc(
+    "get_booking_request_by_token",
+    { p_token: cleaned }
+  );
 
-  if (error || !request) notFound();
+  const request = (Array.isArray(rpcData) ? rpcData[0] : rpcData) as
+    | PublicRequestRow
+    | null;
+
+  if (rpcErr || !request?.id) {
+    notFound();
+  }
 
   return (
     <main className="mx-auto max-w-3xl px-6 py-16">
@@ -49,7 +56,7 @@ export default async function PublicRequestPage({
         <div className="mt-6 space-y-3 text-sm text-white/80">
           <div>
             <strong>Status:</strong>{" "}
-            <span className="capitalize">{request.status ?? "pending"}</span>
+            <span className="capitalize">{request.status ?? "new"}</span>
           </div>
 
           <div>
