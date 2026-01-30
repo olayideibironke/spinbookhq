@@ -8,6 +8,7 @@ import { stripe } from "@/lib/stripe";
 export const dynamic = "force-dynamic";
 
 const COMPANY_BCC = "spinbookhq@gmail.com";
+const DEFAULT_FROM = "SpinBook HQ <no-reply@spinbookhq.com>";
 
 function buildOrigin() {
   return (
@@ -90,14 +91,16 @@ async function sendEmailDepositReceived(args: {
   publicToken: string;
 }) {
   const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.RESEND_FROM_EMAIL;
+
+  // ✅ Use verified-domain sender by default
+  const from = String(process.env.RESEND_FROM_EMAIL ?? DEFAULT_FROM).trim();
 
   // Don’t break webhook if email env isn’t set.
-  if (!apiKey || !from) {
+  if (!apiKey) {
     console.warn(
-      "[SpinBookHQ] Resend env missing: set RESEND_API_KEY and RESEND_FROM_EMAIL to enable deposit-received emails."
+      "[SpinBookHQ] Resend env missing: set RESEND_API_KEY to enable deposit-received emails."
     );
-    return { ok: false as const, error: "Missing RESEND_API_KEY or RESEND_FROM_EMAIL" };
+    return { ok: false as const, error: "Missing RESEND_API_KEY" };
   }
 
   const origin = buildOrigin();
@@ -119,11 +122,15 @@ async function sendEmailDepositReceived(args: {
     args.recipientType === "dj"
       ? `<p style="margin:0 0 12px 0;">
            Hello,<br/>
-           A client has paid the <strong>${formatUsd(200)}</strong> deposit. The booking is now <strong>confirmed</strong>.
+           A client has paid the <strong>${formatUsd(
+             200
+           )}</strong> deposit. The booking is now <strong>confirmed</strong>.
          </p>`
       : `<p style="margin:0 0 12px 0;">
            Hi ${escapeHtml(args.requesterName || "there")},<br/>
-           We’ve received your <strong>${formatUsd(200)}</strong> deposit. Your booking request is now <strong>confirmed</strong> with
+           We’ve received your <strong>${formatUsd(
+             200
+           )}</strong> deposit. Your booking request is now <strong>confirmed</strong> with
            <strong>${escapeHtml(args.djName)}</strong>.
          </p>`;
 
@@ -138,7 +145,9 @@ async function sendEmailDepositReceived(args: {
       ${quotedLine}
       <div><strong>Event date:</strong> ${escapeHtml(args.eventDate)}</div>
       <div><strong>Location:</strong> ${escapeHtml(args.eventLocation)}</div>
-      <div style="margin-top:8px;"><strong>Deposit:</strong> ${formatUsd(200)} (non-refundable)</div>
+      <div style="margin-top:8px;"><strong>Deposit:</strong> ${formatUsd(
+        200
+      )} (non-refundable)</div>
     </div>
 
     <p style="margin:0 0 12px 0;">
@@ -271,7 +280,11 @@ export async function POST(req: Request) {
   // If the DB has a stored session id and it doesn't match, do NOT update or email.
   const incomingSessionId = String(session.id ?? "").trim();
   const storedSessionId = String(reqRow.stripe_checkout_session_id ?? "").trim();
-  if (storedSessionId && incomingSessionId && storedSessionId !== incomingSessionId) {
+  if (
+    storedSessionId &&
+    incomingSessionId &&
+    storedSessionId !== incomingSessionId
+  ) {
     console.warn("[SpinBookHQ] Session ID mismatch for booking", {
       bookingId,
       storedSessionId,
@@ -298,7 +311,8 @@ export async function POST(req: Request) {
         deposit_paid: true,
         deposit_paid_at: nowIso,
         public_token: publicToken,
-        stripe_checkout_session_id: storedSessionId || incomingSessionId || null,
+        stripe_checkout_session_id:
+          storedSessionId || incomingSessionId || null,
       })
       .eq("id", bookingId);
   } else {

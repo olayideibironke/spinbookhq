@@ -9,6 +9,7 @@ import { stripe } from "@/lib/stripe";
 export const dynamic = "force-dynamic";
 
 const COMPANY_BCC = "spinbookhq@gmail.com";
+const DEFAULT_FROM = "SpinBook HQ <no-reply@spinbookhq.com>";
 
 type BookingStatus = "new" | "accepted" | "declined" | "closed";
 type FilterKey = "all" | BookingStatus;
@@ -147,11 +148,12 @@ async function sendEmailDeclined(args: {
   publicToken: string;
 }): Promise<{ ok: boolean; error?: string }> {
   const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.RESEND_FROM_EMAIL;
 
-  if (!apiKey || !from) {
-    const msg =
-      "Missing RESEND_API_KEY or RESEND_FROM_EMAIL (Vercel Production env).";
+  // ✅ Use verified-domain sender by default
+  const from = String(process.env.RESEND_FROM_EMAIL ?? DEFAULT_FROM).trim();
+
+  if (!apiKey) {
+    const msg = "Missing RESEND_API_KEY (Vercel Production env).";
     console.warn("[SpinBookHQ] Email #2 (Declined) not sent:", msg);
     return { ok: false, error: msg };
   }
@@ -233,12 +235,16 @@ async function sendEmailAcceptedDepositRequired(args: {
   checkoutUrl: string;
 }): Promise<{ ok: boolean; error?: string }> {
   const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.RESEND_FROM_EMAIL;
 
-  if (!apiKey || !from) {
-    const msg =
-      "Missing RESEND_API_KEY or RESEND_FROM_EMAIL (Vercel Production env).";
-    console.warn("[SpinBookHQ] Email #3 (Accepted + deposit link) not sent:", msg);
+  // ✅ Use verified-domain sender by default
+  const from = String(process.env.RESEND_FROM_EMAIL ?? DEFAULT_FROM).trim();
+
+  if (!apiKey) {
+    const msg = "Missing RESEND_API_KEY (Vercel Production env).";
+    console.warn(
+      "[SpinBookHQ] Email #3 (Accepted + deposit link) not sent:",
+      msg
+    );
     return { ok: false, error: msg };
   }
 
@@ -254,12 +260,16 @@ async function sendEmailAcceptedDepositRequired(args: {
     <p style="margin:0 0 12px 0;">
       Hi ${escapeHtml(args.requesterName || "there")},<br/>
       <strong>${escapeHtml(args.djName)}</strong> accepted your booking request.
-      To lock in your date, please pay the required <strong>${formatUsd(200)}</strong> deposit.
+      To lock in your date, please pay the required <strong>${formatUsd(
+        200
+      )}</strong> deposit.
     </p>
 
     <div style="border:1px solid #e6e6ef; border-radius:14px; padding:14px; background:#fafafe; margin:14px 0;">
       <div><strong>Booking reference:</strong> ${escapeHtml(args.bookingId)}</div>
-      <div><strong>Agreed total price:</strong> ${formatUsd(Number(args.quotedTotal))}</div>
+      <div><strong>Agreed total price:</strong> ${formatUsd(
+        Number(args.quotedTotal)
+      )}</div>
       <div><strong>Event date:</strong> ${escapeHtml(args.eventDate)}</div>
       <div><strong>Location:</strong> ${escapeHtml(args.eventLocation)}</div>
 
@@ -274,7 +284,9 @@ async function sendEmailAcceptedDepositRequired(args: {
 
     <p style="margin:0 0 12px 0;">
       <strong>Pay deposit now:</strong><br/>
-      <a href="${escapeAttr(args.checkoutUrl)}">${escapeHtml(args.checkoutUrl)}</a>
+      <a href="${escapeAttr(args.checkoutUrl)}">${escapeHtml(
+        args.checkoutUrl
+      )}</a>
     </p>
 
     <p style="margin:0 0 12px 0;">
@@ -608,7 +620,8 @@ export default async function DashboardRequestsPage({
         deposit_split_spinbook_cents: String(DEPOSIT_SPLIT_SPINBOOK_CENTS),
         deposit_split_dj_cents: String(DEPOSIT_SPLIT_DJ_CENTS),
         quoted_total: String(req.quoted_total ?? ""),
-        platform_fee_total: platformFeeTotal != null ? String(platformFeeTotal) : "",
+        platform_fee_total:
+          platformFeeTotal != null ? String(platformFeeTotal) : "",
         platform_fee_paid: String(platformFeePaid),
         policy:
           "Deposit is $200. $80 to SpinBook, $120 to DJ. Deposit is non-refundable if client fails to pay full balance 7 days before event. SpinBook earns 10% of agreed total; remaining fee owed by DJ.",
