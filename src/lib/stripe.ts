@@ -18,7 +18,8 @@ export function getStripe() {
 
   if (!stripeSingleton) {
     stripeSingleton = new Stripe(key, {
-      apiVersion: "2025-12-15.clover",
+      // Must match the installed Stripe types' allowed apiVersion literal.
+      apiVersion: "2025-12-15.clover" as Stripe.LatestApiVersion,
     });
   }
 

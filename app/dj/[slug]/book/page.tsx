@@ -1,5 +1,7 @@
+// FILE: app/dj/[slug]/book/page.tsx
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import crypto from "crypto";
 import { createClient } from "@/lib/supabase/server";
 import { buildPublicRequestUrl, requestSentEmail, sendEmail } from "@/lib/email";
 
@@ -36,16 +38,27 @@ function parseGenres(raw: unknown): string[] {
 }
 
 function makeToken() {
-  // 32 bytes => 64 hex chars (unguessable)
-  const bytes = new Uint8Array(32);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes)
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+  // ✅ Server-safe token (Node crypto)
+  return crypto.randomBytes(32).toString("hex");
 }
 
 function safeReason(code: string) {
-  return encodeURIComponent(String(code ?? "").slice(0, 120));
+  return encodeURIComponent(String(code ?? "").slice(0, 160));
+}
+
+function toReasonFromRpcError(err: any) {
+  const code = String(err?.code ?? "").trim();
+  const msg = String(err?.message ?? "").trim().toLowerCase();
+
+  // Surface the *actual* signal so we stop guessing.
+  // (We still keep it short & safe for URL.)
+  if (code) return `rpc_${code}`;
+  if (msg.includes("permission")) return "rpc_permission";
+  if (msg.includes("policy")) return "rpc_rls";
+  if (msg.includes("invalid input syntax for type date")) return "bad_event_date";
+  if (msg.includes("invalid input syntax")) return "bad_input";
+  if (msg.includes("null value")) return "missing_required";
+  return "insert_failed";
 }
 
 export default async function DjBookingPage({
@@ -97,7 +110,7 @@ export default async function DjBookingPage({
 
     const name = String(formData.get("name") ?? "").trim();
     const email = String(formData.get("email") ?? "").trim();
-    const eventDate = String(formData.get("event_date") ?? "").trim(); // YYYY-MM-DD from <input type="date">
+    const eventDate = String(formData.get("event_date") ?? "").trim(); // YYYY-MM-DD
     const location = String(formData.get("location") ?? "").trim();
     const message = String(formData.get("message") ?? "").trim();
 
@@ -127,14 +140,14 @@ export default async function DjBookingPage({
 
     const public_token = makeToken();
 
-    // ✅ CRITICAL: Use SECURITY DEFINER RPC to bypass anon RLS insert issues safely.
+    // ✅ CRITICAL: use SECURITY DEFINER RPC for inserts
     const { data: rpcData, error: rpcErr } = await sb.rpc(
       "create_booking_request",
       {
         p_dj_user_id: djRow.user_id,
         p_requester_name: name,
         p_requester_email: email,
-        p_event_date: eventDate, // Postgres will coerce to date because function param is date
+        p_event_date: eventDate,
         p_event_location: location,
         p_message: message || null,
         p_public_token: public_token,
@@ -144,25 +157,8 @@ export default async function DjBookingPage({
     const inserted = Array.isArray(rpcData) ? rpcData[0] : rpcData;
 
     if (rpcErr || !inserted?.id || !inserted?.public_token) {
-      const code = String((rpcErr as any)?.code ?? "").trim();
-      const msg = String((rpcErr as any)?.message ?? "").trim();
-
-      // Give a helpful reason without leaking huge details
-      const reasonCode =
-        code === "42501"
-          ? "rls_denied"
-          : msg.includes("event_date_required")
-          ? "event_date_required"
-          : msg.includes("requester_email_required")
-          ? "requester_email_required"
-          : msg.includes("requester_name_required")
-          ? "requester_name_required"
-          : msg.includes("event_location_required")
-          ? "event_location_required"
-          : msg.includes("dj_user_id_required")
-          ? "dj_user_id_required"
-          : "insert_failed";
-
+      // ✅ show real signal in URL so we can fix in 1 shot
+      const reasonCode = rpcErr ? toReasonFromRpcError(rpcErr) : "insert_failed";
       redirect(`/dj/${slug}/book?ok=0&reason=${safeReason(reasonCode)}`);
     }
 
