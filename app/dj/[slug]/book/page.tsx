@@ -1,9 +1,9 @@
 // FILE: app/dj/[slug]/book/page.tsx
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import crypto from "crypto";
 import { createClient } from "@/lib/supabase/server";
 import { buildPublicRequestUrl, requestSentEmail, sendEmail } from "@/lib/email";
+import crypto from "crypto";
 
 export const dynamic = "force-dynamic";
 
@@ -38,27 +38,11 @@ function parseGenres(raw: unknown): string[] {
 }
 
 function makeToken() {
-  // ✅ Server-safe token (Node crypto)
   return crypto.randomBytes(32).toString("hex");
 }
 
 function safeReason(code: string) {
-  return encodeURIComponent(String(code ?? "").slice(0, 160));
-}
-
-function toReasonFromRpcError(err: any) {
-  const code = String(err?.code ?? "").trim();
-  const msg = String(err?.message ?? "").trim().toLowerCase();
-
-  // Surface the *actual* signal so we stop guessing.
-  // (We still keep it short & safe for URL.)
-  if (code) return `rpc_${code}`;
-  if (msg.includes("permission")) return "rpc_permission";
-  if (msg.includes("policy")) return "rpc_rls";
-  if (msg.includes("invalid input syntax for type date")) return "bad_event_date";
-  if (msg.includes("invalid input syntax")) return "bad_input";
-  if (msg.includes("null value")) return "missing_required";
-  return "insert_failed";
+  return encodeURIComponent(String(code ?? "").slice(0, 120));
 }
 
 export default async function DjBookingPage({
@@ -140,7 +124,7 @@ export default async function DjBookingPage({
 
     const public_token = makeToken();
 
-    // ✅ CRITICAL: use SECURITY DEFINER RPC for inserts
+    // SECURITY DEFINER RPC insert
     const { data: rpcData, error: rpcErr } = await sb.rpc(
       "create_booking_request",
       {
@@ -157,14 +141,33 @@ export default async function DjBookingPage({
     const inserted = Array.isArray(rpcData) ? rpcData[0] : rpcData;
 
     if (rpcErr || !inserted?.id || !inserted?.public_token) {
-      // ✅ show real signal in URL so we can fix in 1 shot
-      const reasonCode = rpcErr ? toReasonFromRpcError(rpcErr) : "insert_failed";
+      const code = String((rpcErr as any)?.code ?? "").trim();
+      const msg = String((rpcErr as any)?.message ?? "").trim();
+
+      const reasonCode =
+        code === "42501"
+          ? "rls_denied"
+          : msg.includes("event_date_required")
+          ? "event_date_required"
+          : msg.includes("requester_email_required")
+          ? "requester_email_required"
+          : msg.includes("requester_name_required")
+          ? "requester_name_required"
+          : msg.includes("event_location_required")
+          ? "event_location_required"
+          : msg.includes("dj_user_id_required")
+          ? "dj_user_id_required"
+          : "insert_failed";
+
       redirect(`/dj/${slug}/book?ok=0&reason=${safeReason(reasonCode)}`);
     }
 
-    // Email #1 — Request received (only mark sent if success)
+    // Email #1 — Request received
+    const requestId = String(inserted.id);
+    const token = String(inserted.public_token);
+
     try {
-      const tokenUrl = buildPublicRequestUrl(String(inserted.public_token));
+      const tokenUrl = buildPublicRequestUrl(token);
       await sendEmail(
         requestSentEmail({
           to: email,
@@ -178,9 +181,15 @@ export default async function DjBookingPage({
       await sb
         .from("booking_requests")
         .update({ request_email_sent_at: new Date().toISOString() })
-        .eq("id", String(inserted.id));
-    } catch {
-      // Non-blocking: request still created successfully
+        .eq("id", requestId);
+    } catch (e: any) {
+      // ✅ critical: log the real failure to Vercel logs
+      console.error(
+        "[SpinBookHQ] Email #1 (request confirmation) FAILED:",
+        e?.message ?? e
+      );
+      // keep request created, but show user a clear reason
+      redirect(`/dj/${slug}/book?ok=0&reason=${safeReason("email_send_failed")}`);
     }
 
     redirect(`/dj/${slug}/book?ok=1`);
@@ -198,7 +207,6 @@ export default async function DjBookingPage({
   return (
     <main className="p-6">
       <div className="mx-auto w-full max-w-4xl">
-        {/* Top nav */}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <Link
             className="inline-flex items-center rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-sm font-semibold text-white/80 hover:bg-white/[0.06]"
@@ -212,7 +220,6 @@ export default async function DjBookingPage({
           </span>
         </div>
 
-        {/* Header */}
         <div className="mt-7">
           <h1 className="text-4xl font-extrabold tracking-tight text-white">
             Request Booking
@@ -224,7 +231,6 @@ export default async function DjBookingPage({
             {djCity ? <span className="text-white/55"> • {djCity}</span> : null}
           </p>
 
-          {/* Genre chips */}
           {topGenres.length > 0 ? (
             <div className="mt-4">
               <p className="text-xs font-extrabold tracking-[0.18em] text-white/55">
@@ -249,7 +255,6 @@ export default async function DjBookingPage({
           </p>
         </div>
 
-        {/* How it works */}
         <section className="mt-6 rounded-3xl border border-white/10 bg-white/[0.04] p-6 shadow-[0_18px_60px_rgba(0,0,0,0.55)] backdrop-blur">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
@@ -274,7 +279,6 @@ export default async function DjBookingPage({
           </div>
         </section>
 
-        {/* Status banners */}
         {showSuccess && (
           <div className="mt-6 rounded-3xl border border-emerald-400/20 bg-emerald-500/10 p-6 shadow-[0_18px_60px_rgba(0,0,0,0.35)]">
             <div className="flex items-center gap-2 text-base font-extrabold text-emerald-100">
@@ -320,7 +324,6 @@ export default async function DjBookingPage({
           </div>
         )}
 
-        {/* Form card (hide after success) */}
         {!showSuccess && (
           <section className="mt-6 rounded-3xl border border-white/10 bg-white/[0.04] p-7 shadow-[0_18px_60px_rgba(0,0,0,0.55)] backdrop-blur">
             <form action={submitBooking} className="space-y-6">
