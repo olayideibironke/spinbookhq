@@ -8,9 +8,9 @@ export const dynamic = "force-dynamic";
 export default async function PublicRequestPage({
   params,
 }: {
-  params: Promise<{ token: string }>;
+  params: { token: string };
 }) {
-  const { token } = await params;
+  const token = String(params?.token ?? "").trim();
 
   if (!token) notFound();
 
@@ -33,9 +33,7 @@ export default async function PublicRequestPage({
     .eq("public_token", token)
     .maybeSingle();
 
-  if (error || !request) {
-    notFound();
-  }
+  if (error || !request) notFound();
 
   return (
     <main className="mx-auto max-w-3xl px-6 py-16">
@@ -55,11 +53,11 @@ export default async function PublicRequestPage({
           </div>
 
           <div>
-            <strong>Event date:</strong> {request.event_date}
+            <strong>Event date:</strong> {request.event_date ?? "—"}
           </div>
 
           <div>
-            <strong>Location:</strong> {request.event_location}
+            <strong>Location:</strong> {request.event_location ?? "—"}
           </div>
 
           <div>
