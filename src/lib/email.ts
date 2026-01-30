@@ -10,10 +10,15 @@ type EmailPayload = {
 };
 
 function buildOrigin() {
-  return (
-    process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ||
-    "http://localhost:3000"
-  );
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
+
+  if (!siteUrl) {
+    throw new Error(
+      "Missing NEXT_PUBLIC_SITE_URL (required for email links in production)"
+    );
+  }
+
+  return siteUrl.replace(/\/$/, "");
 }
 
 export function buildPublicRequestUrl(publicToken: string) {
@@ -89,17 +94,23 @@ export function requestSentEmail(args: {
 
     <p style="margin:0 0 12px 0;">
       Hi,<br/>
-      We’ve received your booking request for <strong>${escapeHtml(args.djName)}</strong>.
+      We’ve received your booking request for <strong>${escapeHtml(
+        args.djName
+      )}</strong>.
     </p>
 
     <div style="border:1px solid #e6e6ef; border-radius:14px; padding:14px; background:#fafafe; margin:14px 0;">
       <div><strong>Event date:</strong> ${escapeHtml(args.eventDate)}</div>
-      <div><strong>Location:</strong> ${escapeHtml(args.eventLocation)}</div>
+      <div><strong>Location:</strong> ${escapeHtml(
+        args.eventLocation
+      )}</div>
     </div>
 
     <p style="margin:0 0 12px 0;">
       Track your request here anytime:<br/>
-      <a href="${escapeAttr(args.tokenUrl)}">${escapeHtml(args.tokenUrl)}</a>
+      <a href="${escapeAttr(args.tokenUrl)}">${escapeHtml(
+        args.tokenUrl
+      )}</a>
     </p>
 
     <p style="margin:14px 0 0 0; font-size:12px; color:#4b5563;">
@@ -135,24 +146,36 @@ export function depositLinkEmail(args: {
     <h2 style="margin:0 0 12px 0;">Your booking was accepted ✅</h2>
 
     <p style="margin:0 0 12px 0;">
-      Good news — <strong>${escapeHtml(args.djName)}</strong> accepted your request.
-      Please pay the <strong>${formatUsd(200)}</strong> deposit to lock the booking in.
+      Good news — <strong>${escapeHtml(
+        args.djName
+      )}</strong> accepted your request.
+      Please pay the <strong>${formatUsd(
+        200
+      )}</strong> deposit to lock the booking in.
     </p>
 
     <div style="border:1px solid #e6e6ef; border-radius:14px; padding:14px; background:#fafafe; margin:14px 0;">
       <div><strong>Event date:</strong> ${escapeHtml(args.eventDate)}</div>
-      <div><strong>Location:</strong> ${escapeHtml(args.eventLocation)}</div>
-      <div style="margin-top:8px;"><strong>Deposit:</strong> ${formatUsd(200)} (non-refundable)</div>
+      <div><strong>Location:</strong> ${escapeHtml(
+        args.eventLocation
+      )}</div>
+      <div style="margin-top:8px;"><strong>Deposit:</strong> ${formatUsd(
+        200
+      )} (non-refundable)</div>
     </div>
 
     <p style="margin:0 0 12px 0;">
       Pay deposit here:<br/>
-      <a href="${escapeAttr(args.checkoutUrl)}">${escapeHtml(args.checkoutUrl)}</a>
+      <a href="${escapeAttr(args.checkoutUrl)}">${escapeHtml(
+        args.checkoutUrl
+      )}</a>
     </p>
 
     <p style="margin:0 0 12px 0;">
       Track your request anytime:<br/>
-      <a href="${escapeAttr(args.tokenUrl)}">${escapeHtml(args.tokenUrl)}</a>
+      <a href="${escapeAttr(args.tokenUrl)}">${escapeHtml(
+        args.tokenUrl
+      )}</a>
     </p>
 
     <hr style="border:none; border-top:1px solid #e6e6ef; margin:16px 0;" />
