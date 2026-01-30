@@ -1,9 +1,9 @@
 // FILE: app/dj/[slug]/book/page.tsx
 import Link from "next/link";
+import crypto from "crypto";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { buildPublicRequestUrl, requestSentEmail, sendEmail } from "@/lib/email";
-import crypto from "crypto";
 
 export const dynamic = "force-dynamic";
 
@@ -38,6 +38,7 @@ function parseGenres(raw: unknown): string[] {
 }
 
 function makeToken() {
+  // 32 bytes => 64 hex chars (unguessable)
   return crypto.randomBytes(32).toString("hex");
 }
 
@@ -124,7 +125,7 @@ export default async function DjBookingPage({
 
     const public_token = makeToken();
 
-    // SECURITY DEFINER RPC insert
+    // Insert via SECURITY DEFINER RPC (safe for anon)
     const { data: rpcData, error: rpcErr } = await sb.rpc(
       "create_booking_request",
       {
@@ -147,27 +148,25 @@ export default async function DjBookingPage({
       const reasonCode =
         code === "42501"
           ? "rls_denied"
-          : msg.includes("event_date_required")
+          : msg.includes("event_date")
           ? "event_date_required"
-          : msg.includes("requester_email_required")
+          : msg.includes("requester_email")
           ? "requester_email_required"
-          : msg.includes("requester_name_required")
+          : msg.includes("requester_name")
           ? "requester_name_required"
-          : msg.includes("event_location_required")
+          : msg.includes("event_location")
           ? "event_location_required"
-          : msg.includes("dj_user_id_required")
+          : msg.includes("dj_user_id")
           ? "dj_user_id_required"
           : "insert_failed";
 
       redirect(`/dj/${slug}/book?ok=0&reason=${safeReason(reasonCode)}`);
     }
 
-    // Email #1 — Request received
-    const requestId = String(inserted.id);
-    const token = String(inserted.public_token);
+    // Email #1 — Request received (DO NOT swallow failures silently)
+    const tokenUrl = buildPublicRequestUrl(String(inserted.public_token));
 
     try {
-      const tokenUrl = buildPublicRequestUrl(token);
       await sendEmail(
         requestSentEmail({
           to: email,
@@ -178,17 +177,15 @@ export default async function DjBookingPage({
         })
       );
 
-      await sb
-        .from("booking_requests")
-        .update({ request_email_sent_at: new Date().toISOString() })
-        .eq("id", requestId);
+      // Mark as sent via SECURITY DEFINER RPC (avoids anon UPDATE RLS issues)
+      await sb.rpc("mark_request_email_sent", {
+        p_request_id: String(inserted.id),
+      });
     } catch (e: any) {
-      // ✅ critical: log the real failure to Vercel logs
       console.error(
-        "[SpinBookHQ] Email #1 (request confirmation) FAILED:",
-        e?.message ?? e
+        "[SpinBookHQ] Email #1 failed:",
+        String(e?.message ?? e ?? "unknown_error")
       );
-      // keep request created, but show user a clear reason
       redirect(`/dj/${slug}/book?ok=0&reason=${safeReason("email_send_failed")}`);
     }
 
@@ -226,8 +223,7 @@ export default async function DjBookingPage({
           </h1>
 
           <p className="mt-2 text-sm text-white/65">
-            Requesting:{" "}
-            <span className="font-extrabold text-white">{djName}</span>
+            Requesting: <span className="font-extrabold text-white">{djName}</span>
             {djCity ? <span className="text-white/55"> • {djCity}</span> : null}
           </p>
 
@@ -250,17 +246,15 @@ export default async function DjBookingPage({
           ) : null}
 
           <p className="mt-4 max-w-2xl text-sm text-white/60">
-            Fill this out once. If the DJ accepts, you may be asked to pay a
-            secure deposit to confirm.
+            Fill this out once. If the DJ accepts, you may be asked to pay a secure
+            deposit to confirm.
           </p>
         </div>
 
         <section className="mt-6 rounded-3xl border border-white/10 bg-white/[0.04] p-6 shadow-[0_18px_60px_rgba(0,0,0,0.55)] backdrop-blur">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <p className="text-base font-extrabold text-white">
-                What happens next
-              </p>
+              <p className="text-base font-extrabold text-white">What happens next</p>
               <ul className="mt-3 space-y-1 text-sm text-white/65">
                 <li>• You send the request with event details.</li>
                 <li>• DJ reviews and may accept or decline.</li>
@@ -269,9 +263,7 @@ export default async function DjBookingPage({
             </div>
 
             <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-              <p className="text-sm font-extrabold text-white">
-                Deposit (if required)
-              </p>
+              <p className="text-sm font-extrabold text-white">Deposit (if required)</p>
               <p className="mt-1 text-sm text-white/65">
                 Deposits are collected securely via Stripe.
               </p>
@@ -312,8 +304,7 @@ export default async function DjBookingPage({
               Something went wrong
             </div>
             <p className="mt-2 text-sm text-red-100/80">
-              Please check the required fields (name, email, date, location) and
-              try again.
+              Please try again. If it continues, contact SpinBook HQ support.
             </p>
 
             {reason ? (
@@ -423,8 +414,7 @@ export default async function DjBookingPage({
 
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <p className="text-xs text-white/55">
-                  By sending a request, you agree to be contacted about this
-                  booking.
+                  By sending a request, you agree to be contacted about this booking.
                 </p>
 
                 <button
