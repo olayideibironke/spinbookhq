@@ -31,8 +31,8 @@ async function submitWaitlist(formData: FormData) {
   const instagram = clean(formData.get("instagram"));
   const genres = clean(formData.get("genres"));
 
-  // Optional attribution (safe)
-  const source = clean(formData.get("source")); // e.g. "instagram", "tiktok", "facebook", "referral"
+  // Optional attribution (safe): /dj-waitlist?src=instagram
+  const source = clean(formData.get("source"));
 
   // Basic validation (no fancy logic, just safety)
   if (!stage_name || !email || !city || !experience_band) {
@@ -41,8 +41,6 @@ async function submitWaitlist(formData: FormData) {
 
   const supabase = await createClient();
 
-  // IMPORTANT: This upsert assumes you already have a dj_waitlist table with these columns.
-  // We keep it stable and only add "source" if your DB has it (defensive fallback below).
   const payloadBase: any = {
     stage_name,
     email,
@@ -53,9 +51,6 @@ async function submitWaitlist(formData: FormData) {
     status: "pending",
   };
 
-  // If the DB doesn't have "source", the insert would error.
-  // To avoid breaking production, we only include source when it's provided,
-  // AND we gracefully fallback if Supabase complains about the column.
   const payloadWithSource = source ? { ...payloadBase, source } : payloadBase;
 
   let { error } = await supabase
@@ -137,7 +132,7 @@ export default async function DjWaitlistPage({
                   <li>• Priority placement at launch</li>
                   <li>• Early access to booking tools</li>
                   <li>• Verified profile + premium presentation</li>
-                  <li>• Help shape the platform roadmap</li>
+                  <li>• Spotlight opportunities as we scale</li>
                 </ul>
               </div>
 
@@ -158,6 +153,47 @@ export default async function DjWaitlistPage({
                   </p>
                 </div>
               </div>
+            </div>
+
+            {/* ✅ NEW: Founding DJ Rules + Benefits (policy block) */}
+            <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-sm font-semibold">Founding DJ program</p>
+                <span className="inline-flex items-center rounded-full border border-white/10 bg-black/30 px-3 py-1 text-xs font-semibold text-white/70">
+                  Simple • Professional • Nationwide
+                </span>
+              </div>
+
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                <div className="rounded-2xl border border-white/10 bg-black/25 p-5">
+                  <p className="text-xs font-extrabold tracking-[0.18em] text-white/60">
+                    BENEFITS
+                  </p>
+                  <ul className="mt-3 space-y-2 text-sm text-white/70">
+                    <li>• Founding DJ badge + priority placement</li>
+                    <li>• Early access to profile + workflow tools</li>
+                    <li>• Featured visibility during launch window</li>
+                    <li>• Direct line for feedback while we build</li>
+                  </ul>
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-black/25 p-5">
+                  <p className="text-xs font-extrabold tracking-[0.18em] text-white/60">
+                    EXPECTATIONS
+                  </p>
+                  <ul className="mt-3 space-y-2 text-sm text-white/70">
+                    <li>• Real DJ identity + legit offering</li>
+                    <li>• Keep your profile current (city, genres, pricing)</li>
+                    <li>• Once clients unlock: respond within ~24 hours</li>
+                    <li>• Early phase: no booking guarantees</li>
+                  </ul>
+                </div>
+              </div>
+
+              <p className="mt-4 text-xs text-white/55">
+                By applying, you’re requesting early access. If approved, we’ll email your
+                invite instructions.
+              </p>
             </div>
 
             {submitted ? (
