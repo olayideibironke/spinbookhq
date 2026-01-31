@@ -1,4 +1,5 @@
 // FILE: app/dj/[slug]/book/page.tsx
+
 import Link from "next/link";
 import crypto from "crypto";
 import { redirect } from "next/navigation";
@@ -60,6 +61,16 @@ export default async function DjBookingPage({
 
   const supabase = await createClient();
 
+  // ✅ PHASE 1 GATE: booking requests are disabled for public/clients.
+  // Only allow access when a user is authenticated (DJ/internal testing).
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    redirect("/coming-soon");
+  }
+
   const { data: dj, error: djErr } = await supabase
     .from("dj_profiles")
     .select("user_id, slug, stage_name, city, published, genres")
@@ -92,6 +103,16 @@ export default async function DjBookingPage({
 
   async function submitBooking(formData: FormData) {
     "use server";
+
+    // ✅ PHASE 1 SAFETY: block server action unless authed (prevents direct POST attempts)
+    const sbAuth = await createClient();
+    const {
+      data: { user: actionUser },
+    } = await sbAuth.auth.getUser();
+
+    if (!actionUser) {
+      redirect("/coming-soon");
+    }
 
     const name = String(formData.get("name") ?? "").trim();
     const email = String(formData.get("email") ?? "").trim();
