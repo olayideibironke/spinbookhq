@@ -81,7 +81,7 @@ export default async function Home() {
     <main className="min-h-screen bg-black text-white">
       {/* HERO */}
       <section className="relative overflow-hidden border-b border-white/10">
-        {/* ✅ COLORS ONLY: hero background wash */}
+        {/* hero background wash */}
         <div className="pointer-events-none absolute inset-0 z-0">
           <div className="absolute inset-0 bg-gradient-to-r from-purple-950/70 via-black to-fuchsia-950/50" />
           <div className="absolute -top-48 left-1/2 h-96 w-[70rem] -translate-x-1/2 rounded-full bg-purple-500/20 blur-3xl" />
@@ -192,14 +192,11 @@ export default async function Home() {
         </div>
       </section>
 
-      {/* FEATURED DJS */}
-      <section className="relative overflow-hidden">
-        {/* ✅ COLORS ONLY: section 3 background wash */}
+      {/* FEATURED DJS (Section 3) */}
+      <section className="relative overflow-hidden bg-gradient-to-r from-purple-950/55 via-black to-fuchsia-950/40 sm:from-purple-950/35 sm:to-fuchsia-950/25">
+        {/* keep overlay, but background is now guaranteed on mobile */}
         <div className="pointer-events-none absolute inset-0 z-0">
-          <div className="absolute inset-0 bg-gradient-to-r from-purple-950/35 via-black to-fuchsia-950/25" />
-          <div className="absolute -top-56 left-1/2 h-[34rem] w-[80rem] -translate-x-1/2 rounded-full bg-purple-500/10 blur-3xl" />
-          <div className="absolute -top-40 right-[-14rem] h-[28rem] w-[44rem] rounded-full bg-fuchsia-500/10 blur-3xl" />
-          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/70" />
+          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/75 sm:to-black/80" />
         </div>
 
         <div className="relative z-10 mx-auto max-w-6xl px-6 py-14">
@@ -282,18 +279,14 @@ export default async function Home() {
         </div>
       </section>
 
-      {/* HOW IT WORKS */}
+      {/* HOW IT WORKS (Section 4) */}
       <section
         id="how-it-works"
-        className="relative overflow-hidden scroll-mt-24 border-t border-white/10"
+        className="relative overflow-hidden scroll-mt-24 border-t border-white/10 bg-gradient-to-r from-purple-950/55 via-black to-fuchsia-950/40 sm:from-purple-950/30 sm:to-fuchsia-950/20"
         aria-label="How it works"
       >
-        {/* ✅ COLORS ONLY: keep this section consistent with the page wash */}
         <div className="pointer-events-none absolute inset-0 z-0">
-          <div className="absolute inset-0 bg-gradient-to-r from-purple-950/30 via-black to-fuchsia-950/20" />
-          <div className="absolute -top-56 left-1/2 h-[34rem] w-[80rem] -translate-x-1/2 rounded-full bg-purple-500/10 blur-3xl" />
-          <div className="absolute -top-40 right-[-14rem] h-[28rem] w-[44rem] rounded-full bg-fuchsia-500/10 blur-3xl" />
-          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/80" />
+          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/80 sm:to-black/85" />
         </div>
 
         <div className="relative z-10 mx-auto max-w-6xl px-6 py-16">
@@ -359,12 +352,9 @@ export default async function Home() {
         </div>
       </section>
 
-      {/* ✅ FOOTER CTA (Section 4) — COLORS ONLY background wash */}
-      <section className="relative overflow-hidden border-t border-white/10">
+      {/* FOOTER CTA (Section 5) */}
+      <section className="relative overflow-hidden border-t border-white/10 bg-gradient-to-r from-purple-950/50 via-black to-fuchsia-950/35 sm:from-purple-950/25 sm:to-fuchsia-950/15">
         <div className="pointer-events-none absolute inset-0 z-0">
-          <div className="absolute inset-0 bg-gradient-to-r from-purple-950/25 via-black to-fuchsia-950/15" />
-          <div className="absolute -top-56 left-1/2 h-[34rem] w-[80rem] -translate-x-1/2 rounded-full bg-purple-500/10 blur-3xl" />
-          <div className="absolute -top-40 right-[-14rem] h-[28rem] w-[44rem] rounded-full bg-fuchsia-500/10 blur-3xl" />
           <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/85" />
         </div>
 
