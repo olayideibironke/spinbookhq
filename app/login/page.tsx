@@ -1,4 +1,6 @@
-// app/login/page.tsx
+// FILE: app/login/page.tsx
+
+import Link from "next/link";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createServerClient } from "@supabase/ssr";
@@ -27,12 +29,88 @@ function buildSupabase(cookieStore: Awaited<ReturnType<typeof cookies>>) {
   );
 }
 
+function ClientComingSoonCard() {
+  return (
+    <main className="min-h-screen bg-black text-white">
+      <section className="relative overflow-hidden border-b border-white/10">
+        {/* Premium background wash */}
+        <div className="pointer-events-none absolute inset-0 z-0">
+          <div className="absolute inset-0 bg-gradient-to-r from-purple-950/70 via-black to-fuchsia-950/50" />
+          <div className="absolute -top-48 left-1/2 h-96 w-[70rem] -translate-x-1/2 rounded-full bg-purple-500/20 blur-3xl" />
+          <div className="absolute -top-40 right-[-12rem] h-96 w-[40rem] rounded-full bg-fuchsia-500/15 blur-3xl" />
+          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/80" />
+        </div>
+
+        <div className="relative z-10 mx-auto flex min-h-[calc(100vh-80px)] max-w-3xl items-center px-6 py-16">
+          <div className="w-full rounded-3xl border border-white/10 bg-white/5 p-7 shadow-[0_18px_60px_rgba(0,0,0,0.55)] backdrop-blur sm:p-9">
+            <p className="inline-flex items-center rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs font-semibold text-white/80">
+              Client bookings • Coming soon
+            </p>
+
+            <h1 className="mt-4 text-3xl font-extrabold tracking-tight sm:text-4xl">
+              Client access is launching soon
+            </h1>
+
+            <p className="mt-3 text-sm leading-relaxed text-white/75">
+              SpinBook HQ is currently onboarding a limited number of{" "}
+              <span className="font-semibold text-white">Founding DJs</span> ahead of public
+              launch. Client booking access will open shortly in select cities.
+            </p>
+
+            <div className="mt-7 grid gap-3 sm:grid-cols-2">
+              <Link
+                href="/dj-waitlist"
+                className="inline-flex items-center justify-center rounded-full bg-white px-6 py-3 text-sm font-semibold text-black hover:bg-white/90"
+              >
+                Become a Founding DJ
+              </Link>
+
+              <Link
+                href="/"
+                className="inline-flex items-center justify-center rounded-full border border-white/15 bg-white/5 px-6 py-3 text-sm font-semibold text-white hover:bg-white/10"
+              >
+                Back to home
+              </Link>
+            </div>
+
+            <div className="mt-6 rounded-2xl border border-white/10 bg-black/30 p-4 text-sm text-white/70">
+              <p className="font-semibold text-white/85">Are you a DJ?</p>
+              <p className="mt-1">
+                Use the DJ login link:
+                <span className="ml-2 inline-flex">
+                  <Link
+                    href="/login?dj=1"
+                    className="underline underline-offset-4 text-white/85 hover:text-white"
+                  >
+                    Continue to DJ login
+                  </Link>
+                </span>
+              </p>
+            </div>
+
+            <p className="mt-6 text-xs text-white/50">
+              This is an early-access phase to ensure quality and a trusted marketplace from day one.
+            </p>
+          </div>
+        </div>
+      </section>
+    </main>
+  );
+}
+
 export default async function LoginPage(props: {
-  searchParams?: Promise<{ mode?: string; msg?: string }>;
+  searchParams?: Promise<{ mode?: string; msg?: string; dj?: string }>;
 }) {
   const resolvedSearchParams = props.searchParams
     ? await props.searchParams
     : undefined;
+
+  const isDjAccess = String(resolvedSearchParams?.dj ?? "").trim() === "1";
+
+  // ✅ Phase 1 gate: default /login is client "coming soon"
+  if (!isDjAccess) {
+    return <ClientComingSoonCard />;
+  }
 
   const mode: Mode =
     resolvedSearchParams?.mode === "signup" ? "signup" : "signin";
@@ -41,6 +119,12 @@ export default async function LoginPage(props: {
     ? decodeURIComponent(resolvedSearchParams.msg)
     : null;
 
+  const loginUrl = (m: Mode, message?: string | null) => {
+    const base = `/login?dj=1&mode=${m}`;
+    if (message) return `${base}&msg=${encodeURIComponent(message)}`;
+    return base;
+  };
+
   async function authAction(formData: FormData) {
     "use server";
 
@@ -48,15 +132,16 @@ export default async function LoginPage(props: {
     const supabase = buildSupabase(cookieStore);
 
     const actionMode = (formData.get("mode") as Mode) ?? "signin";
+    const dj = String(formData.get("dj") ?? "").trim() === "1";
+
+    // Safety: DJ flag must be present, otherwise send to client gate
+    if (!dj) redirect("/login");
+
     const email = String(formData.get("email") ?? "").trim();
     const password = String(formData.get("password") ?? "");
 
     if (!email || !password) {
-      redirect(
-        `/login?mode=${actionMode}&msg=${encodeURIComponent(
-          "Email and password are required."
-        )}`
-      );
+      redirect(loginUrl(actionMode, "Email and password are required."));
     }
 
     // ✅ Use the current request origin, fallback to prod domain
@@ -77,13 +162,14 @@ export default async function LoginPage(props: {
       });
 
       if (error) {
-        redirect(`/login?mode=signup&msg=${encodeURIComponent(error.message)}`);
+        redirect(loginUrl("signup", error.message));
       }
 
       redirect(
-        `/login?mode=signin&msg=${encodeURIComponent(
+        loginUrl(
+          "signin",
           "Signup successful. Check your email to confirm. After confirming, you’ll be sent to your profile setup."
-        )}`
+        )
       );
     }
 
@@ -93,7 +179,7 @@ export default async function LoginPage(props: {
     });
 
     if (error) {
-      redirect(`/login?mode=signin&msg=${encodeURIComponent(error.message)}`);
+      redirect(loginUrl("signin", error.message));
     }
 
     // ✅ After login, take DJs to onboarding/profile first
@@ -141,6 +227,7 @@ export default async function LoginPage(props: {
 
           <form action={authAction} className="mt-7 space-y-4" suppressHydrationWarning>
             <input type="hidden" name="mode" value={mode} />
+            <input type="hidden" name="dj" value="1" />
 
             <div className="space-y-2">
               <label className="text-sm font-semibold text-white/85">
@@ -191,7 +278,7 @@ export default async function LoginPage(props: {
             action={async () => {
               "use server";
               const nextMode: Mode = mode === "signin" ? "signup" : "signin";
-              redirect(`/login?mode=${nextMode}`);
+              redirect(`/login?dj=1&mode=${nextMode}`);
             }}
           >
             <button
