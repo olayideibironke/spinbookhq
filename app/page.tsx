@@ -81,19 +81,15 @@ export default async function Home() {
     <main className="min-h-screen bg-black text-white">
       {/* HERO */}
       <section className="relative overflow-hidden border-b border-white/10">
-        {/* ✅ COLORS ONLY: reliable premium gradient BEHIND hero content */}
-        <div className="pointer-events-none absolute inset-0 -z-10">
-          {/* main premium wash (matches other pages vibe) */}
+        {/* ✅ COLORS ONLY: hero background wash */}
+        <div className="pointer-events-none absolute inset-0 z-0">
           <div className="absolute inset-0 bg-gradient-to-r from-purple-950/70 via-black to-fuchsia-950/50" />
-          {/* top glow */}
           <div className="absolute -top-48 left-1/2 h-96 w-[70rem] -translate-x-1/2 rounded-full bg-purple-500/20 blur-3xl" />
-          {/* right glow */}
           <div className="absolute -top-40 right-[-12rem] h-96 w-[40rem] rounded-full bg-fuchsia-500/15 blur-3xl" />
-          {/* bottom fade so it blends into the rest of the page */}
           <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/70" />
         </div>
 
-        <div className="mx-auto max-w-6xl px-6 py-16 sm:py-20">
+        <div className="relative z-10 mx-auto max-w-6xl px-6 py-16 sm:py-20">
           <div className="grid gap-10 lg:grid-cols-2 lg:items-center">
             <div className="space-y-6">
               <p className="inline-flex items-center rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs text-white/80">
@@ -197,92 +193,110 @@ export default async function Home() {
       </section>
 
       {/* FEATURED DJS */}
-      <section className="mx-auto max-w-6xl px-6 py-14">
-        <div className="flex items-end justify-between gap-6">
-          <div>
-            <h2 className="text-2xl font-semibold tracking-tight">Featured DJs</h2>
-            <p className="mt-2 max-w-2xl text-sm text-white/70">
-              Verified profiles with clear starting prices and fast booking flow.
-            </p>
+      <section className="relative overflow-hidden">
+        {/* ✅ COLORS ONLY: section 3 background wash */}
+        <div className="pointer-events-none absolute inset-0 z-0">
+          <div className="absolute inset-0 bg-gradient-to-r from-purple-950/35 via-black to-fuchsia-950/25" />
+          <div className="absolute -top-56 left-1/2 h-[34rem] w-[80rem] -translate-x-1/2 rounded-full bg-purple-500/10 blur-3xl" />
+          <div className="absolute -top-40 right-[-14rem] h-[28rem] w-[44rem] rounded-full bg-fuchsia-500/10 blur-3xl" />
+          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/70" />
+        </div>
+
+        <div className="relative z-10 mx-auto max-w-6xl px-6 py-14">
+          <div className="flex items-end justify-between gap-6">
+            <div>
+              <h2 className="text-2xl font-semibold tracking-tight">Featured DJs</h2>
+              <p className="mt-2 max-w-2xl text-sm text-white/70">
+                Verified profiles with clear starting prices and fast booking flow.
+              </p>
+            </div>
+
+            <Link
+              href="/djs"
+              className="hidden rounded-full border border-white/15 bg-white/5 px-4 py-2 text-sm font-semibold text-white hover:bg-white/10 sm:inline-flex"
+            >
+              View all
+            </Link>
           </div>
 
-          <Link
-            href="/djs"
-            className="hidden rounded-full border border-white/15 bg-white/5 px-4 py-2 text-sm font-semibold text-white hover:bg-white/10 sm:inline-flex"
-          >
-            View all
-          </Link>
-        </div>
+          <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {(featuredDjs?.length ? featuredDjs : []).map((dj) => {
+              const name = pickDisplayName(dj);
+              const from = pickFromPrice(dj);
+              const href = pickHref(dj);
 
-        <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {(featuredDjs?.length ? featuredDjs : []).map((dj) => {
-            const name = pickDisplayName(dj);
-            const from = pickFromPrice(dj);
-            const href = pickHref(dj);
+              return (
+                <Link
+                  key={dj.user_id}
+                  href={href}
+                  className="group relative overflow-hidden rounded-3xl border border-white/10 bg-white/5 p-5 hover:border-white/20 hover:bg-white/10"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-black/50 text-sm font-semibold">
+                      {initials(name)}
+                    </div>
 
-            return (
-              <Link
-                key={dj.user_id}
-                href={href}
-                className="group relative overflow-hidden rounded-3xl border border-white/10 bg-white/5 p-5 hover:border-white/20 hover:bg-white/10"
-              >
-                <div className="flex items-center gap-4">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-black/50 text-sm font-semibold">
-                    {initials(name)}
+                    <div className="min-w-0">
+                      <p className="truncate text-base font-semibold">{name}</p>
+                      <p className="truncate text-sm text-white/65">
+                        {pickLocation(dj)}
+                      </p>
+                    </div>
                   </div>
 
-                  <div className="min-w-0">
-                    <p className="truncate text-base font-semibold">{name}</p>
-                    <p className="truncate text-sm text-white/65">
-                      {pickLocation(dj)}
+                  <div className="mt-4 flex items-center justify-between">
+                    <p className="text-sm text-white/70">
+                      {from ? formatFromPrice(from) : "View pricing"}
                     </p>
+                    <span className="rounded-full border border-white/15 bg-black/40 px-3 py-1 text-xs text-white/80">
+                      View
+                    </span>
                   </div>
-                </div>
 
-                <div className="mt-4 flex items-center justify-between">
-                  <p className="text-sm text-white/70">
-                    {from ? formatFromPrice(from) : "View pricing"}
-                  </p>
-                  <span className="rounded-full border border-white/15 bg-black/40 px-3 py-1 text-xs text-white/80">
-                    View
-                  </span>
-                </div>
+                  <div className="pointer-events-none absolute inset-0 opacity-0 transition-opacity group-hover:opacity-100">
+                    <div className="absolute -inset-10 bg-gradient-to-b from-white/10 to-transparent blur-2xl" />
+                  </div>
+                </Link>
+              );
+            })}
 
-                <div className="pointer-events-none absolute inset-0 opacity-0 transition-opacity group-hover:opacity-100">
-                  <div className="absolute -inset-10 bg-gradient-to-b from-white/10 to-transparent blur-2xl" />
-                </div>
-              </Link>
-            );
-          })}
+            {!featuredDjs?.length ? (
+              <div className="rounded-3xl border border-white/10 bg-white/5 p-6 text-white/70 sm:col-span-2 lg:col-span-3">
+                No featured DJs yet.{" "}
+                <Link href="/djs" className="underline underline-offset-4">
+                  Browse all DJs
+                </Link>{" "}
+                to explore profiles.
+              </div>
+            ) : null}
+          </div>
 
-          {!featuredDjs?.length ? (
-            <div className="rounded-3xl border border-white/10 bg-white/5 p-6 text-white/70 sm:col-span-2 lg:col-span-3">
-              No featured DJs yet.{" "}
-              <Link href="/djs" className="underline underline-offset-4">
-                Browse all DJs
-              </Link>{" "}
-              to explore profiles.
-            </div>
-          ) : null}
-        </div>
-
-        <div className="mt-6 sm:hidden">
-          <Link
-            href="/djs"
-            className="inline-flex w-full items-center justify-center rounded-full border border-white/15 bg-white/5 px-4 py-3 text-sm font-semibold text-white hover:bg-white/10"
-          >
-            View all DJs
-          </Link>
+          <div className="mt-6 sm:hidden">
+            <Link
+              href="/djs"
+              className="inline-flex w-full items-center justify-center rounded-full border border-white/15 bg-white/5 px-4 py-3 text-sm font-semibold text-white hover:bg-white/10"
+            >
+              View all DJs
+            </Link>
+          </div>
         </div>
       </section>
 
-      {/* ✅ RESTORED: HOW IT WORKS (ANCHOR + STYLED) */}
+      {/* HOW IT WORKS */}
       <section
         id="how-it-works"
-        className="scroll-mt-24 border-t border-white/10 bg-black"
+        className="relative overflow-hidden scroll-mt-24 border-t border-white/10"
         aria-label="How it works"
       >
-        <div className="mx-auto max-w-6xl px-6 py-16">
+        {/* ✅ COLORS ONLY: keep this section consistent with the page wash */}
+        <div className="pointer-events-none absolute inset-0 z-0">
+          <div className="absolute inset-0 bg-gradient-to-r from-purple-950/30 via-black to-fuchsia-950/20" />
+          <div className="absolute -top-56 left-1/2 h-[34rem] w-[80rem] -translate-x-1/2 rounded-full bg-purple-500/10 blur-3xl" />
+          <div className="absolute -top-40 right-[-14rem] h-[28rem] w-[44rem] rounded-full bg-fuchsia-500/10 blur-3xl" />
+          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/80" />
+        </div>
+
+        <div className="relative z-10 mx-auto max-w-6xl px-6 py-16">
           <div className="max-w-3xl">
             <h2 className="text-2xl font-semibold tracking-tight">How It Works</h2>
             <p className="mt-2 text-sm leading-relaxed text-white/70">
@@ -336,16 +350,25 @@ export default async function Home() {
           <div className="mt-10 rounded-3xl border border-white/10 bg-white/5 p-6">
             <p className="text-sm font-semibold">Pro tip</p>
             <p className="mt-2 text-sm text-white/70">
-              If you click <span className="font-semibold text-white">How It Works</span> in the header,
-              this section is guaranteed to exist in the DOM and the page can scroll here reliably.
+              If you click{" "}
+              <span className="font-semibold text-white">How It Works</span> in the
+              header, this section is guaranteed to exist in the DOM and the page can
+              scroll here reliably.
             </p>
           </div>
         </div>
       </section>
 
-      {/* FOOTER CTA */}
-      <section className="border-t border-white/10">
-        <div className="mx-auto max-w-6xl px-6 py-14">
+      {/* ✅ FOOTER CTA (Section 4) — COLORS ONLY background wash */}
+      <section className="relative overflow-hidden border-t border-white/10">
+        <div className="pointer-events-none absolute inset-0 z-0">
+          <div className="absolute inset-0 bg-gradient-to-r from-purple-950/25 via-black to-fuchsia-950/15" />
+          <div className="absolute -top-56 left-1/2 h-[34rem] w-[80rem] -translate-x-1/2 rounded-full bg-purple-500/10 blur-3xl" />
+          <div className="absolute -top-40 right-[-14rem] h-[28rem] w-[44rem] rounded-full bg-fuchsia-500/10 blur-3xl" />
+          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/85" />
+        </div>
+
+        <div className="relative z-10 mx-auto max-w-6xl px-6 py-14">
           <div className="rounded-3xl border border-white/10 bg-white/5 p-8 sm:p-10">
             <h3 className="text-xl font-semibold tracking-tight">Ready to book?</h3>
             <p className="mt-2 text-sm text-white/70">
