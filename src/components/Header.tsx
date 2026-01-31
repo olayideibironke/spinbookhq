@@ -27,18 +27,29 @@ function NavLink({
   isActive?: boolean;
   className?: string;
 }) {
+  const classes = [
+    "shrink-0 rounded-full px-4 py-2 text-sm font-semibold transition",
+    isActive
+      ? "bg-white/15 text-white ring-1 ring-white/15"
+      : "text-white/75 hover:bg-white/10 hover:text-white",
+    className || "",
+  ].join(" ");
+
+  // ✅ Hash links: use <a> so the browser performs the anchor jump reliably
+  if (href.includes("#")) {
+    return (
+      <a
+        href={href}
+        aria-current={isActive ? "page" : undefined}
+        className={classes}
+      >
+        {children}
+      </a>
+    );
+  }
+
   return (
-    <Link
-      href={href}
-      aria-current={isActive ? "page" : undefined}
-      className={[
-        "shrink-0 rounded-full px-4 py-2 text-sm font-semibold transition",
-        isActive
-          ? "bg-white/15 text-white ring-1 ring-white/15"
-          : "text-white/75 hover:bg-white/10 hover:text-white",
-        className || "",
-      ].join(" ")}
-    >
+    <Link href={href} aria-current={isActive ? "page" : undefined} className={classes}>
       {children}
     </Link>
   );
