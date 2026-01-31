@@ -172,7 +172,7 @@ export default async function Header() {
               <NavLink href="/contact" isActive={isActive("/contact")}>
                 Contact
               </NavLink>
-              <NavLink href="/login" isActive={isActive("/login")}>
+              <NavLink href="/dj-waitlist" isActive={isActive("/dj-waitlist")}>
                 For DJs
               </NavLink>
             </>
@@ -220,7 +220,7 @@ export default async function Header() {
 
             {!isAuthed ? (
               <>
-                <NavLink href="/login" isActive={isActive("/login")}>
+                <NavLink href="/dj-waitlist" isActive={isActive("/dj-waitlist")}>
                   For DJs
                 </NavLink>
 

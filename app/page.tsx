@@ -122,6 +122,13 @@ export default async function Home() {
                 </Link>
 
                 <Link
+                  href="/dj-waitlist"
+                  className="inline-flex items-center justify-center rounded-full border border-white/20 bg-white/5 px-6 py-3 text-sm font-semibold text-white hover:bg-white/10"
+                >
+                  For DJs
+                </Link>
+
+                <Link
                   href={INSTAGRAM_URL}
                   target="_blank"
                   rel="noreferrer"
@@ -193,9 +200,17 @@ export default async function Home() {
       </section>
 
       {/* FEATURED DJS (Section 3) */}
-      <section className="relative overflow-hidden bg-gradient-to-r from-purple-950/55 via-black to-fuchsia-950/40 sm:from-purple-950/35 sm:to-fuchsia-950/25">
-        {/* keep overlay, but background is now guaranteed on mobile */}
-        <div className="pointer-events-none absolute inset-0 z-0">
+      <section className="relative overflow-hidden bg-black sm:bg-gradient-to-r sm:from-purple-950/35 sm:via-black sm:to-fuchsia-950/25">
+        {/* Mobile premium wash (matches Hero look) */}
+        <div className="pointer-events-none absolute inset-0 z-0 sm:hidden">
+          <div className="absolute inset-0 bg-gradient-to-r from-purple-950/70 via-black to-fuchsia-950/50" />
+          <div className="absolute -top-48 left-1/2 h-96 w-[70rem] -translate-x-1/2 rounded-full bg-purple-500/20 blur-3xl" />
+          <div className="absolute -top-40 right-[-12rem] h-96 w-[40rem] rounded-full bg-fuchsia-500/15 blur-3xl" />
+          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/75" />
+        </div>
+
+        {/* Desktop overlay stays as before */}
+        <div className="pointer-events-none absolute inset-0 z-0 hidden sm:block">
           <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/75 sm:to-black/80" />
         </div>
 
@@ -282,10 +297,19 @@ export default async function Home() {
       {/* HOW IT WORKS (Section 4) */}
       <section
         id="how-it-works"
-        className="relative overflow-hidden scroll-mt-24 border-t border-white/10 bg-gradient-to-r from-purple-950/55 via-black to-fuchsia-950/40 sm:from-purple-950/30 sm:to-fuchsia-950/20"
+        className="relative overflow-hidden scroll-mt-24 border-t border-white/10 bg-black sm:bg-gradient-to-r sm:from-purple-950/30 sm:via-black sm:to-fuchsia-950/20"
         aria-label="How it works"
       >
-        <div className="pointer-events-none absolute inset-0 z-0">
+        {/* Mobile premium wash (matches Hero look) */}
+        <div className="pointer-events-none absolute inset-0 z-0 sm:hidden">
+          <div className="absolute inset-0 bg-gradient-to-r from-purple-950/70 via-black to-fuchsia-950/50" />
+          <div className="absolute -top-48 left-1/2 h-96 w-[70rem] -translate-x-1/2 rounded-full bg-purple-500/20 blur-3xl" />
+          <div className="absolute -top-40 right-[-12rem] h-96 w-[40rem] rounded-full bg-fuchsia-500/15 blur-3xl" />
+          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/80" />
+        </div>
+
+        {/* Desktop overlay stays as before */}
+        <div className="pointer-events-none absolute inset-0 z-0 hidden sm:block">
           <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/80 sm:to-black/85" />
         </div>
 
@@ -353,8 +377,17 @@ export default async function Home() {
       </section>
 
       {/* FOOTER CTA (Section 5) */}
-      <section className="relative overflow-hidden border-t border-white/10 bg-gradient-to-r from-purple-950/50 via-black to-fuchsia-950/35 sm:from-purple-950/25 sm:to-fuchsia-950/15">
-        <div className="pointer-events-none absolute inset-0 z-0">
+      <section className="relative overflow-hidden border-t border-white/10 bg-black sm:bg-gradient-to-r sm:from-purple-950/25 sm:via-black sm:to-fuchsia-950/15">
+        {/* Mobile premium wash (matches Hero look) */}
+        <div className="pointer-events-none absolute inset-0 z-0 sm:hidden">
+          <div className="absolute inset-0 bg-gradient-to-r from-purple-950/70 via-black to-fuchsia-950/50" />
+          <div className="absolute -top-48 left-1/2 h-96 w-[70rem] -translate-x-1/2 rounded-full bg-purple-500/20 blur-3xl" />
+          <div className="absolute -top-40 right-[-12rem] h-96 w-[40rem] rounded-full bg-fuchsia-500/15 blur-3xl" />
+          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/85" />
+        </div>
+
+        {/* Desktop overlay stays as before */}
+        <div className="pointer-events-none absolute inset-0 z-0 hidden sm:block">
           <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/85" />
         </div>
 
