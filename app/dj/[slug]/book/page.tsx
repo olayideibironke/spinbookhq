@@ -1,5 +1,4 @@
 // FILE: app/dj/[slug]/book/page.tsx
-
 import Link from "next/link";
 import crypto from "crypto";
 import { redirect } from "next/navigation";
@@ -62,13 +61,13 @@ export default async function DjBookingPage({
   const supabase = await createClient();
 
   // ✅ PHASE 1 GATE: booking requests are disabled for public/clients.
-  // Only allow access when a user is authenticated (DJ/internal testing).
+  // Route non-authed users to /login (which shows the Client Coming Soon gate).
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
   if (!user) {
-    redirect("/coming-soon");
+    redirect("/login");
   }
 
   const { data: dj, error: djErr } = await supabase
@@ -105,13 +104,14 @@ export default async function DjBookingPage({
     "use server";
 
     // ✅ PHASE 1 SAFETY: block server action unless authed (prevents direct POST attempts)
+    // Route to /login (client coming soon).
     const sbAuth = await createClient();
     const {
       data: { user: actionUser },
     } = await sbAuth.auth.getUser();
 
     if (!actionUser) {
-      redirect("/coming-soon");
+      redirect("/login");
     }
 
     const name = String(formData.get("name") ?? "").trim();
