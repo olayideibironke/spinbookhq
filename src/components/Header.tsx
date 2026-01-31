@@ -16,6 +16,9 @@ async function getRequestPathname(): Promise<string | null> {
   return null;
 }
 
+const navBase =
+  "shrink-0 rounded-full px-4 py-2 text-sm font-semibold transition";
+
 function NavLink({
   href,
   children,
@@ -27,31 +30,53 @@ function NavLink({
   isActive?: boolean;
   className?: string;
 }) {
-  const classes = [
-    "shrink-0 rounded-full px-4 py-2 text-sm font-semibold transition",
-    isActive
-      ? "bg-white/15 text-white ring-1 ring-white/15"
-      : "text-white/75 hover:bg-white/10 hover:text-white",
-    className || "",
-  ].join(" ");
-
-  // ✅ Hash links: use <a> so the browser performs the anchor jump reliably
-  if (href.includes("#")) {
-    return (
-      <a
-        href={href}
-        aria-current={isActive ? "page" : undefined}
-        className={classes}
-      >
-        {children}
-      </a>
-    );
-  }
-
   return (
-    <Link href={href} aria-current={isActive ? "page" : undefined} className={classes}>
+    <Link
+      href={href}
+      aria-current={isActive ? "page" : undefined}
+      className={[
+        navBase,
+        isActive
+          ? "bg-white/15 text-white ring-1 ring-white/15"
+          : "text-white/75 hover:bg-white/10 hover:text-white",
+        className || "",
+      ].join(" ")}
+    >
       {children}
     </Link>
+  );
+}
+
+/**
+ * IMPORTANT:
+ * For same-page hash navigation (/#section), Next Link can sometimes NOT scroll
+ * depending on routing state. A plain <a> always works.
+ */
+function HashNavLink({
+  href,
+  children,
+  isActive,
+  className,
+}: {
+  href: string; // e.g. "/#how-it-works"
+  children: React.ReactNode;
+  isActive?: boolean;
+  className?: string;
+}) {
+  return (
+    <a
+      href={href}
+      aria-current={isActive ? "page" : undefined}
+      className={[
+        navBase,
+        isActive
+          ? "bg-white/15 text-white ring-1 ring-white/15"
+          : "text-white/75 hover:bg-white/10 hover:text-white",
+        className || "",
+      ].join(" ")}
+    >
+      {children}
+    </a>
   );
 }
 
@@ -70,6 +95,7 @@ export default async function Header() {
   const current = normalize(pathname || "/");
 
   const isActive = (href: string) => {
+    // hash links are "active" only when we are on "/"
     if (href.startsWith("/#")) return current === "/";
     return current === normalize(href);
   };
@@ -134,9 +160,12 @@ export default async function Header() {
         <nav className="mt-2 hidden md:flex items-center justify-center gap-2">
           {!isAuthed ? (
             <>
-              <NavLink href="/#how-it-works" isActive={isActive("/#how-it-works")}>
+              <HashNavLink
+                href="/#how-it-works"
+                isActive={isActive("/#how-it-works")}
+              >
                 How It Works
-              </NavLink>
+              </HashNavLink>
               <NavLink href="/djs" isActive={isActive("/djs")}>
                 Find DJs
               </NavLink>
@@ -177,9 +206,9 @@ export default async function Header() {
         {/* ✅ Mobile nav: ONE clean row, no extra text-links row */}
         <div className="mt-3 md:hidden">
           <div className="flex items-center gap-2 overflow-x-auto whitespace-nowrap [-webkit-overflow-scrolling:touch] pb-1">
-            <NavLink href="/#how-it-works" isActive={false}>
+            <HashNavLink href="/#how-it-works" isActive={isActive("/#how-it-works")}>
               How It Works
-            </NavLink>
+            </HashNavLink>
 
             <NavLink href="/djs" isActive={isActive("/djs")}>
               Find DJs
