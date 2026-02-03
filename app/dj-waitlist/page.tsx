@@ -7,7 +7,8 @@ import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
-type ExperienceBand = "1–3" | "3–5" | "5+";
+// Keep compatibility with current UI values ("1â€“3") AND normalize to DB-safe ("1-3")
+type ExperienceBand = "1â€“3" | "3â€“5" | "5+" | "1-3" | "3-5";
 
 function clean(s: unknown) {
   return String(s ?? "").trim();
@@ -30,19 +31,32 @@ function escapeHtml(input: string) {
     .replaceAll("'", "&#039;");
 }
 
-/**
- * Sends a confirmation email to the DJ applicant.
- *
- * Uses Resend REST API.
- *
- * Uses YOUR env var names:
- * - RESEND_API_KEY (already set)
- * - RESEND_FROM_EMAIL (already set)
- *
- * Optional:
- * - RESEND_CC (defaults to spinbookhq@gmail.com)
- */
-async function sendDjWaitlistEmail(args: {
+// ✅ Normalizes weird dash encodings to DB-safe values
+function normalizeExperienceBand(raw: string): ExperienceBand {
+  const v = clean(raw);
+
+  // Keep "5+"
+  if (v === "5+" || v.toLowerCase() === "5+") return "5+";
+
+  // Convert any non-standard dash sequence to a normal "-"
+  // This catches: "1â€“3", "1–3", "1—3", etc.
+  const normalized = v.replace(/[^\d+]+/g, "-"); // "1â€“3" => "1-3"
+
+  if (normalized === "1-3") return "1-3";
+  if (normalized === "3-5") return "3-5";
+
+  // If something unexpected comes in, return raw (still required validation will catch empties)
+  return v as ExperienceBand;
+}
+
+function experienceLabelForEmail(band: ExperienceBand) {
+  if (band === "1-3" || band === "1â€“3") return "1–3 years";
+  if (band === "3-5" || band === "3â€“5") return "3–5 years";
+  if (band === "5+") return "5+ years";
+  return String(band);
+}
+
+async function sendWaitlistConfirmationEmail(args: {
   toEmail: string;
   stageName: string;
   city: string;
@@ -51,69 +65,54 @@ async function sendDjWaitlistEmail(args: {
   genres?: string | null;
 }) {
   const apiKey = process.env.RESEND_API_KEY;
-
-  // ✅ Your project uses RESEND_FROM_EMAIL
-  const from = process.env.RESEND_FROM_EMAIL || process.env.RESEND_FROM;
-
-  const cc = process.env.RESEND_CC || "spinbookhq@gmail.com";
+  const from = process.env.RESEND_FROM_EMAIL; // ✅ already set in Vercel
+  const cc = "spinbookhq@gmail.com";
 
   if (!apiKey || !from) {
     throw new Error("email_not_configured");
   }
 
-  const subject = `✅ Application received — ${APP_NAME} Founding DJ Waitlist`;
+  const subject = `✅ You’re in — ${APP_NAME} Founding DJ Waitlist`;
 
-  const safeStage = args.stageName || "DJ";
-  const safeCity = args.city || "—";
-  const safeExp = args.experienceBand || "—";
-  const safeInstagram = args.instagram?.trim() ? args.instagram.trim() : "—";
-  const safeGenres = args.genres?.trim() ? args.genres.trim() : "—";
+  const safeStage = (args.stageName || "DJ").toString().trim();
+  const safeCity = (args.city || "—").toString().trim();
+  const safeExp = experienceLabelForEmail(args.experienceBand);
+  const safeInstagram = (args.instagram || "").toString().trim() || "—";
+  const safeGenres = (args.genres || "").toString().trim() || "—";
 
   const html = `
   <div style="font-family: Arial, Helvetica, sans-serif; line-height:1.55; color:#111;">
-    <h2 style="margin:0 0 8px;">Application received ✅</h2>
+    <h2 style="margin:0 0 10px;">Application received ✅</h2>
+
     <p style="margin:0 0 12px;">
-      Hi ${escapeHtml(safeStage)},<br/>
-      Thanks for applying to join the <b>${escapeHtml(APP_NAME)}</b> Founding DJ Waitlist.
-      We’ve received your application and our team reviews submissions in batches.
+      Hey ${escapeHtml(safeStage)},<br/>
+      We’ve received your application for the <b>${escapeHtml(APP_NAME)} Founding DJ Waitlist</b>.
     </p>
 
     <div style="margin:16px 0; padding:12px 14px; border:1px solid #e5e7eb; border-radius:12px; background:#fafafa;">
       <p style="margin:0 0 6px;"><b>Your application summary</b></p>
       <p style="margin:0; font-size:14px;">
         <b>City:</b> ${escapeHtml(safeCity)}<br/>
-        <b>Experience:</b> ${escapeHtml(safeExp)} years<br/>
+        <b>Experience:</b> ${escapeHtml(safeExp)}<br/>
         <b>Instagram / Website:</b> ${escapeHtml(safeInstagram)}<br/>
         <b>Genres:</b> ${escapeHtml(safeGenres)}
       </p>
     </div>
 
     <p style="margin:0 0 12px;">
-      If approved, you’ll receive an email with your private invite link and next steps to complete your DJ profile.
-      Please check your inbox (and spam/promotions).
+      What happens next:
+      <br/>• We review applications in batches
+      <br/>• If approved, you’ll receive a <b>private invite link</b> to complete your DJ profile
+      <br/>• Founding DJs get priority visibility when client bookings open
+    </p>
+
+    <p style="margin:0 0 10px; font-size:13px; color:#555;">
+      If you don’t see this email in 2–3 minutes, check Spam/Promotions.
     </p>
 
     <p style="margin:0; font-size:13px; color:#555;">— SpinBook HQ Team</p>
   </div>
   `;
-
-  const text = `Application received ✅
-
-Hi ${safeStage},
-Thanks for applying to join the ${APP_NAME} Founding DJ Waitlist.
-We’ve received your application and we review in batches.
-
-Application summary:
-City: ${safeCity}
-Experience: ${safeExp} years
-Instagram / Website: ${safeInstagram}
-Genres: ${safeGenres}
-
-If approved, you’ll receive an email with your private invite link and next steps.
-Please check your inbox (and spam/promotions).
-
-— SpinBook HQ Team
-`;
 
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
@@ -124,10 +123,9 @@ Please check your inbox (and spam/promotions).
     body: JSON.stringify({
       from,
       to: args.toEmail,
-      cc: cc ? [cc] : undefined,
+      cc: [cc],
       subject,
       html,
-      text,
     }),
   });
 
@@ -143,23 +141,28 @@ async function submitWaitlist(formData: FormData) {
   const stage_name = clean(formData.get("stage_name"));
   const email = cleanLower(formData.get("email"));
   const city = clean(formData.get("city"));
-  const experience_band = clean(formData.get("experience_band")) as ExperienceBand;
+
+  const experience_raw = clean(formData.get("experience_band"));
+  const experience_band = normalizeExperienceBand(experience_raw);
+
   const instagram = clean(formData.get("instagram"));
   const genres = clean(formData.get("genres"));
 
+  // Optional attribution (safe): /dj-waitlist?src=instagram
   const source = clean(formData.get("source"));
 
-  if (!stage_name || !email || !city || !experience_band) {
+  if (!stage_name || !email || !city || !experience_raw) {
     redirect("/dj-waitlist?error=missing");
   }
 
   const supabase = await createClient();
 
+  // ✅ Store normalized experience_band to avoid DB constraint failures
   const payloadBase: any = {
     stage_name,
     email,
     city,
-    experience_band,
+    experience_band: experience_band, // normalized
     instagram: instagram || null,
     genres: genres || null,
     status: "pending",
@@ -167,30 +170,28 @@ async function submitWaitlist(formData: FormData) {
 
   const payloadWithSource = source ? { ...payloadBase, source } : payloadBase;
 
-  let { error } = await supabase
-    .from("dj_waitlist")
-    .upsert(payloadWithSource, { onConflict: "email" });
+  // ✅ INSERT; treat duplicates as success
+  const { error: insertError } = await supabase.from("dj_waitlist").insert(payloadWithSource);
 
-  if (error && source) {
-    const msg = String((error as any)?.message ?? "");
-    const code = String((error as any)?.code ?? "");
-    const looksLikeMissingColumn =
-      msg.toLowerCase().includes("column") && msg.toLowerCase().includes("source");
-    const looksLikeSchemaMismatch = code === "PGRST204" || code === "42703";
+  if (insertError) {
+    const msg = String(insertError?.message ?? "").toLowerCase();
+    const code = String(insertError?.code ?? "");
 
-    if (looksLikeMissingColumn || looksLikeSchemaMismatch) {
-      error = (await supabase.from("dj_waitlist").upsert(payloadBase, { onConflict: "email" }))
-        .error;
+    const isDuplicate =
+      code === "23505" ||
+      msg.includes("duplicate") ||
+      msg.includes("unique") ||
+      msg.includes("already exists");
+
+    if (!isDuplicate) {
+      redirect(`/dj-waitlist?error=${safeParam("submit")}`);
     }
+    // Duplicate = ok (already applied)
   }
 
-  if (error) {
-    redirect(`/dj-waitlist?error=${safeParam("submit")}`);
-  }
-
-  // ✅ Send confirmation email AFTER successful DB save
+  // ✅ Send confirmation email (but never block success page)
   try {
-    await sendDjWaitlistEmail({
+    await sendWaitlistConfirmationEmail({
       toEmail: email,
       stageName: stage_name,
       city,
@@ -198,16 +199,10 @@ async function submitWaitlist(formData: FormData) {
       instagram: instagram || null,
       genres: genres || null,
     });
-  } catch (e: any) {
-    const msg = String(e?.message ?? e ?? "");
-    if (msg.includes("email_not_configured")) {
-      redirect("/dj-waitlist?error=email_config");
-    }
-    // saved application, but email failed
+    redirect("/dj-waitlist?submitted=1");
+  } catch {
     redirect("/dj-waitlist?submitted=1&email=failed");
   }
-
-  redirect("/dj-waitlist?submitted=1");
 }
 
 export default async function DjWaitlistPage({
@@ -320,24 +315,31 @@ export default async function DjWaitlistPage({
             {submitted ? (
               <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
                 <p className="text-sm font-semibold">Application received ✅</p>
+
                 <p className="mt-2 text-sm text-white/70">
-                  Thanks for applying to become a Founding DJ on {APP_NAME}. We’ve received your
-                  application and our team reviews submissions in batches. If approved, you’ll
-                  receive an email with your private invite link and next steps.
+                  Thank you for applying to become a <span className="font-semibold text-white">Founding DJ</span> on{" "}
+                  <span className="font-semibold text-white">{APP_NAME}</span>. Your application has been successfully
+                  submitted and is now in our review queue.
                 </p>
 
-                <div className="mt-4 rounded-2xl border border-white/10 bg-black/30 p-4">
-                  {emailFlag === "failed" ? (
-                    <p className="text-sm text-white/80">
-                      Heads up: your application was saved, but the confirmation email didn’t send.
-                      Please check your email address and try again later.
+                <p className="mt-3 text-sm text-white/70">
+                  We review applications in batches. If approved, you’ll receive an email with your{" "}
+                  <span className="font-semibold text-white">private invite link</span> to complete your DJ profile.
+                </p>
+
+                {emailFlag === "failed" ? (
+                  <div className="mt-4 rounded-2xl border border-white/10 bg-black/30 p-4">
+                    <p className="text-xs text-white/70">
+                      Your application was saved, but the confirmation email did not send. Please try again later.
                     </p>
-                  ) : (
-                    <p className="text-sm text-white/80">
+                  </div>
+                ) : (
+                  <div className="mt-4 rounded-2xl border border-white/10 bg-black/30 p-4">
+                    <p className="text-xs text-white/70">
                       Please check your inbox (and spam/promotions) for your confirmation email.
                     </p>
-                  )}
-                </div>
+                  </div>
+                )}
 
                 <div className="mt-5 flex flex-col gap-3 sm:flex-row">
                   <Link
@@ -366,11 +368,6 @@ export default async function DjWaitlistPage({
                   <div className="mt-4 rounded-2xl border border-white/10 bg-black/40 p-4 text-sm text-white/80">
                     {error === "missing" ? (
                       <p>Please complete the required fields and try again.</p>
-                    ) : error === "email_config" ? (
-                      <p>
-                        Application saved, but email sender isn’t configured. SpinBook HQ team:
-                        ensure RESEND_FROM_EMAIL is set in Vercel for Production.
-                      </p>
                     ) : (
                       <p>Something went wrong. Please try again.</p>
                     )}
@@ -424,8 +421,8 @@ export default async function DjWaitlistPage({
                         <option value="" disabled>
                           Select…
                         </option>
-                        <option value="1–3">1–3 years</option>
-                        <option value="3–5">3–5 years</option>
+                        <option value="1â€“3">1â€“3 years</option>
+                        <option value="3â€“5">3â€“5 years</option>
                         <option value="5+">5+ years</option>
                       </select>
                     </div>
@@ -458,7 +455,9 @@ export default async function DjWaitlistPage({
                     Apply to join
                   </button>
 
-                  <p className="text-xs text-white/55">By applying, you agree to be contacted about early access. No spam.</p>
+                  <p className="text-xs text-white/55">
+                    By applying, you agree to be contacted about early access. No spam.
+                  </p>
 
                   <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
                     <p className="text-xs font-semibold text-white/80">Already approved?</p>
