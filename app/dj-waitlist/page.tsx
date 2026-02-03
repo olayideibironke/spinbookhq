@@ -21,13 +21,23 @@ function safeParam(s: string) {
   return encodeURIComponent(s.slice(0, 120));
 }
 
+function escapeHtml(input: string) {
+  return input
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
 /**
  * Sends a confirmation email to the DJ applicant.
- * Uses Resend REST API (no SDK needed).
  *
- * Required env vars (Vercel Project Settings → Environment Variables):
- * - RESEND_API_KEY
- * - RESEND_FROM   (must be a verified sender in Resend, e.g. "SpinBook HQ <no-reply@yourdomain.com>")
+ * Uses Resend REST API.
+ *
+ * Uses YOUR env var names:
+ * - RESEND_API_KEY (already set)
+ * - RESEND_FROM_EMAIL (already set)
  *
  * Optional:
  * - RESEND_CC (defaults to spinbookhq@gmail.com)
@@ -41,10 +51,12 @@ async function sendDjWaitlistEmail(args: {
   genres?: string | null;
 }) {
   const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.RESEND_FROM;
+
+  // ✅ Your project uses RESEND_FROM_EMAIL
+  const from = process.env.RESEND_FROM_EMAIL || process.env.RESEND_FROM;
+
   const cc = process.env.RESEND_CC || "spinbookhq@gmail.com";
 
-  // If not configured, throw so caller can route to a friendly error
   if (!apiKey || !from) {
     throw new Error("email_not_configured");
   }
@@ -57,13 +69,12 @@ async function sendDjWaitlistEmail(args: {
   const safeInstagram = args.instagram?.trim() ? args.instagram.trim() : "—";
   const safeGenres = args.genres?.trim() ? args.genres.trim() : "—";
 
-  // Minimal, clean HTML (Resend supports html/text)
   const html = `
-  <div style="font-family: Arial, Helvetica, sans-serif; line-height:1.5; color:#111;">
+  <div style="font-family: Arial, Helvetica, sans-serif; line-height:1.55; color:#111;">
     <h2 style="margin:0 0 8px;">Application received ✅</h2>
     <p style="margin:0 0 12px;">
       Hi ${escapeHtml(safeStage)},<br/>
-      Thanks for applying to join the <b>${APP_NAME}</b> Founding DJ Waitlist.
+      Thanks for applying to join the <b>${escapeHtml(APP_NAME)}</b> Founding DJ Waitlist.
       We’ve received your application and our team reviews submissions in batches.
     </p>
 
@@ -78,13 +89,11 @@ async function sendDjWaitlistEmail(args: {
     </div>
 
     <p style="margin:0 0 12px;">
-      If approved, you’ll receive a private invite email with next steps to complete your DJ profile.
-      Please keep an eye on your inbox (and spam/promotions just in case).
+      If approved, you’ll receive an email with your private invite link and next steps to complete your DJ profile.
+      Please check your inbox (and spam/promotions).
     </p>
 
-    <p style="margin:0 0 6px; font-size:13px; color:#555;">
-      — SpinBook HQ Team
-    </p>
+    <p style="margin:0; font-size:13px; color:#555;">— SpinBook HQ Team</p>
   </div>
   `;
 
@@ -100,7 +109,7 @@ Experience: ${safeExp} years
 Instagram / Website: ${safeInstagram}
 Genres: ${safeGenres}
 
-If approved, you’ll receive a private invite email with next steps to complete your DJ profile.
+If approved, you’ll receive an email with your private invite link and next steps.
 Please check your inbox (and spam/promotions).
 
 — SpinBook HQ Team
@@ -124,17 +133,8 @@ Please check your inbox (and spam/promotions).
 
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    throw new Error(`email_send_failed:${res.status}:${body.slice(0, 200)}`);
+    throw new Error(`email_send_failed:${res.status}:${body.slice(0, 300)}`);
   }
-}
-
-function escapeHtml(input: string) {
-  return input
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
 }
 
 async function submitWaitlist(formData: FormData) {
@@ -147,10 +147,8 @@ async function submitWaitlist(formData: FormData) {
   const instagram = clean(formData.get("instagram"));
   const genres = clean(formData.get("genres"));
 
-  // Optional attribution (safe): /dj-waitlist?src=instagram
   const source = clean(formData.get("source"));
 
-  // Basic validation (no fancy logic, just safety)
   if (!stage_name || !email || !city || !experience_band) {
     redirect("/dj-waitlist?error=missing");
   }
@@ -174,7 +172,6 @@ async function submitWaitlist(formData: FormData) {
     .upsert(payloadWithSource, { onConflict: "email" });
 
   if (error && source) {
-    // Fallback: retry without "source" if column doesn't exist.
     const msg = String((error as any)?.message ?? "");
     const code = String((error as any)?.code ?? "");
     const looksLikeMissingColumn =
@@ -191,7 +188,7 @@ async function submitWaitlist(formData: FormData) {
     redirect(`/dj-waitlist?error=${safeParam("submit")}`);
   }
 
-  // ✅ NEW: Send confirmation email AFTER successful DB save
+  // ✅ Send confirmation email AFTER successful DB save
   try {
     await sendDjWaitlistEmail({
       toEmail: email,
@@ -203,14 +200,10 @@ async function submitWaitlist(formData: FormData) {
     });
   } catch (e: any) {
     const msg = String(e?.message ?? e ?? "");
-
-    // If email isn’t configured, give a clear error so we fix env vars
     if (msg.includes("email_not_configured")) {
       redirect("/dj-waitlist?error=email_config");
     }
-
-    // If email send fails, still confirm application, but show a warning
-    // (We keep the application saved in DB — no loss.)
+    // saved application, but email failed
     redirect("/dj-waitlist?submitted=1&email=failed");
   }
 
@@ -226,13 +219,10 @@ export default async function DjWaitlistPage({
   const submitted = String(sp.submitted ?? "").trim() === "1";
   const error = String(sp.error ?? "").trim();
   const emailFlag = String(sp.email ?? "").trim();
-
-  // Optional prefill from URL: /dj-waitlist?src=instagram
   const srcPrefill = String(sp.src ?? "").trim();
 
   return (
     <main className="min-h-screen bg-black text-white">
-      {/* Premium background wash (mobile + desktop) */}
       <section className="relative overflow-hidden border-b border-white/10">
         <div className="pointer-events-none absolute inset-0 z-0">
           <div className="absolute inset-0 bg-gradient-to-r from-purple-950/70 via-black to-fuchsia-950/50" />
@@ -284,9 +274,7 @@ export default async function DjWaitlistPage({
                 </ol>
 
                 <div className="mt-4 rounded-2xl border border-white/10 bg-black/30 p-4">
-                  <p className="text-xs font-semibold text-white/80">
-                    Client bookings are not open yet
-                  </p>
+                  <p className="text-xs font-semibold text-white/80">Client bookings are not open yet</p>
                   <p className="mt-1 text-xs text-white/60">
                     This phase is DJ onboarding only to ensure quality from day one.
                   </p>
@@ -294,7 +282,6 @@ export default async function DjWaitlistPage({
               </div>
             </div>
 
-            {/* ✅ Founding DJ Rules + Benefits (policy block) */}
             <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <p className="text-sm font-semibold">Founding DJ program</p>
@@ -305,9 +292,7 @@ export default async function DjWaitlistPage({
 
               <div className="mt-4 grid gap-4 sm:grid-cols-2">
                 <div className="rounded-2xl border border-white/10 bg-black/25 p-5">
-                  <p className="text-xs font-extrabold tracking-[0.18em] text-white/60">
-                    BENEFITS
-                  </p>
+                  <p className="text-xs font-extrabold tracking-[0.18em] text-white/60">BENEFITS</p>
                   <ul className="mt-3 space-y-2 text-sm text-white/70">
                     <li>• Founding DJ badge + priority placement</li>
                     <li>• Early access to profile + workflow tools</li>
@@ -317,9 +302,7 @@ export default async function DjWaitlistPage({
                 </div>
 
                 <div className="rounded-2xl border border-white/10 bg-black/25 p-5">
-                  <p className="text-xs font-extrabold tracking-[0.18em] text-white/60">
-                    EXPECTATIONS
-                  </p>
+                  <p className="text-xs font-extrabold tracking-[0.18em] text-white/60">EXPECTATIONS</p>
                   <ul className="mt-3 space-y-2 text-sm text-white/70">
                     <li>• Real DJ identity + legit offering</li>
                     <li>• Keep your profile current (city, genres, pricing)</li>
@@ -330,8 +313,7 @@ export default async function DjWaitlistPage({
               </div>
 
               <p className="mt-4 text-xs text-white/55">
-                By applying, you’re requesting early access. If approved, we’ll email your
-                invite instructions.
+                By applying, you’re requesting early access. If approved, we’ll email your invite instructions.
               </p>
             </div>
 
@@ -341,18 +323,18 @@ export default async function DjWaitlistPage({
                 <p className="mt-2 text-sm text-white/70">
                   Thanks for applying to become a Founding DJ on {APP_NAME}. We’ve received your
                   application and our team reviews submissions in batches. If approved, you’ll
-                  receive a private invite email with next steps to complete your profile.
+                  receive an email with your private invite link and next steps.
                 </p>
 
                 <div className="mt-4 rounded-2xl border border-white/10 bg-black/30 p-4">
                   {emailFlag === "failed" ? (
                     <p className="text-sm text-white/80">
-                      Heads up: we saved your application, but the confirmation email didn’t send.
-                      Please check your email address and try again later, or contact SpinBook HQ support.
+                      Heads up: your application was saved, but the confirmation email didn’t send.
+                      Please check your email address and try again later.
                     </p>
                   ) : (
                     <p className="text-sm text-white/80">
-                      Please check your inbox (and spam/promotions) for a confirmation email.
+                      Please check your inbox (and spam/promotions) for your confirmation email.
                     </p>
                   )}
                 </div>
@@ -386,8 +368,8 @@ export default async function DjWaitlistPage({
                       <p>Please complete the required fields and try again.</p>
                     ) : error === "email_config" ? (
                       <p>
-                        Application saved, but email isn’t configured yet. SpinBook HQ team: set
-                        RESEND_API_KEY and RESEND_FROM in Vercel env vars.
+                        Application saved, but email sender isn’t configured. SpinBook HQ team:
+                        ensure RESEND_FROM_EMAIL is set in Vercel for Production.
                       </p>
                     ) : (
                       <p>Something went wrong. Please try again.</p>
@@ -396,7 +378,6 @@ export default async function DjWaitlistPage({
                 ) : null}
 
                 <form action={submitWaitlist} className="mt-6 space-y-4">
-                  {/* Optional attribution field (hidden). You can use /dj-waitlist?src=instagram */}
                   <input type="hidden" name="source" value={srcPrefill} />
 
                   <div className="grid gap-4 sm:grid-cols-2">
@@ -422,18 +403,14 @@ export default async function DjWaitlistPage({
                     </div>
 
                     <div className="space-y-2">
-                      <label className="text-xs text-white/70">
-                        Primary City / Location *
-                      </label>
+                      <label className="text-xs text-white/70">Primary City / Location *</label>
                       <input
                         name="city"
                         required
                         placeholder="e.g., Toronto, ON / Houston, TX"
                         className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-white placeholder:text-white/40 outline-none focus:border-white/25"
                       />
-                      <p className="text-[11px] text-white/50">
-                        US + Canada only for this founding launch.
-                      </p>
+                      <p className="text-[11px] text-white/50">US + Canada only for this founding launch.</p>
                     </div>
 
                     <div className="space-y-2">
@@ -456,9 +433,7 @@ export default async function DjWaitlistPage({
 
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
-                      <label className="text-xs text-white/70">
-                        Instagram / Website (optional)
-                      </label>
+                      <label className="text-xs text-white/70">Instagram / Website (optional)</label>
                       <input
                         name="instagram"
                         placeholder="e.g., https://instagram.com/yourdjhandle"
@@ -467,9 +442,7 @@ export default async function DjWaitlistPage({
                     </div>
 
                     <div className="space-y-2">
-                      <label className="text-xs text-white/70">
-                        Genres / Specialties (optional)
-                      </label>
+                      <label className="text-xs text-white/70">Genres / Specialties (optional)</label>
                       <input
                         name="genres"
                         placeholder="e.g., Afrobeats, Weddings, House"
@@ -485,18 +458,13 @@ export default async function DjWaitlistPage({
                     Apply to join
                   </button>
 
-                  <p className="text-xs text-white/55">
-                    By applying, you agree to be contacted about early access. No spam.
-                  </p>
+                  <p className="text-xs text-white/55">By applying, you agree to be contacted about early access. No spam.</p>
 
                   <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
                     <p className="text-xs font-semibold text-white/80">Already approved?</p>
                     <p className="mt-1 text-xs text-white/60">
                       Use the DJ login link:{" "}
-                      <Link
-                        href="/login?dj=1"
-                        className="text-white/80 underline underline-offset-4"
-                      >
+                      <Link href="/login?dj=1" className="text-white/80 underline underline-offset-4">
                         Continue to DJ login
                       </Link>
                     </p>
@@ -508,7 +476,6 @@ export default async function DjWaitlistPage({
         </div>
       </section>
 
-      {/* Footer strip */}
       <section className="border-t border-white/10 bg-black">
         <div className="mx-auto max-w-3xl px-6 py-10 text-sm text-white/60">
           <p>
