@@ -21,6 +21,122 @@ function safeParam(s: string) {
   return encodeURIComponent(s.slice(0, 120));
 }
 
+/**
+ * Sends a confirmation email to the DJ applicant.
+ * Uses Resend REST API (no SDK needed).
+ *
+ * Required env vars (Vercel Project Settings → Environment Variables):
+ * - RESEND_API_KEY
+ * - RESEND_FROM   (must be a verified sender in Resend, e.g. "SpinBook HQ <no-reply@yourdomain.com>")
+ *
+ * Optional:
+ * - RESEND_CC (defaults to spinbookhq@gmail.com)
+ */
+async function sendDjWaitlistEmail(args: {
+  toEmail: string;
+  stageName: string;
+  city: string;
+  experienceBand: ExperienceBand;
+  instagram?: string | null;
+  genres?: string | null;
+}) {
+  const apiKey = process.env.RESEND_API_KEY;
+  const from = process.env.RESEND_FROM;
+  const cc = process.env.RESEND_CC || "spinbookhq@gmail.com";
+
+  // If not configured, throw so caller can route to a friendly error
+  if (!apiKey || !from) {
+    throw new Error("email_not_configured");
+  }
+
+  const subject = `✅ Application received — ${APP_NAME} Founding DJ Waitlist`;
+
+  const safeStage = args.stageName || "DJ";
+  const safeCity = args.city || "—";
+  const safeExp = args.experienceBand || "—";
+  const safeInstagram = args.instagram?.trim() ? args.instagram.trim() : "—";
+  const safeGenres = args.genres?.trim() ? args.genres.trim() : "—";
+
+  // Minimal, clean HTML (Resend supports html/text)
+  const html = `
+  <div style="font-family: Arial, Helvetica, sans-serif; line-height:1.5; color:#111;">
+    <h2 style="margin:0 0 8px;">Application received ✅</h2>
+    <p style="margin:0 0 12px;">
+      Hi ${escapeHtml(safeStage)},<br/>
+      Thanks for applying to join the <b>${APP_NAME}</b> Founding DJ Waitlist.
+      We’ve received your application and our team reviews submissions in batches.
+    </p>
+
+    <div style="margin:16px 0; padding:12px 14px; border:1px solid #e5e7eb; border-radius:12px; background:#fafafa;">
+      <p style="margin:0 0 6px;"><b>Your application summary</b></p>
+      <p style="margin:0; font-size:14px;">
+        <b>City:</b> ${escapeHtml(safeCity)}<br/>
+        <b>Experience:</b> ${escapeHtml(safeExp)} years<br/>
+        <b>Instagram / Website:</b> ${escapeHtml(safeInstagram)}<br/>
+        <b>Genres:</b> ${escapeHtml(safeGenres)}
+      </p>
+    </div>
+
+    <p style="margin:0 0 12px;">
+      If approved, you’ll receive a private invite email with next steps to complete your DJ profile.
+      Please keep an eye on your inbox (and spam/promotions just in case).
+    </p>
+
+    <p style="margin:0 0 6px; font-size:13px; color:#555;">
+      — SpinBook HQ Team
+    </p>
+  </div>
+  `;
+
+  const text = `Application received ✅
+
+Hi ${safeStage},
+Thanks for applying to join the ${APP_NAME} Founding DJ Waitlist.
+We’ve received your application and we review in batches.
+
+Application summary:
+City: ${safeCity}
+Experience: ${safeExp} years
+Instagram / Website: ${safeInstagram}
+Genres: ${safeGenres}
+
+If approved, you’ll receive a private invite email with next steps to complete your DJ profile.
+Please check your inbox (and spam/promotions).
+
+— SpinBook HQ Team
+`;
+
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from,
+      to: args.toEmail,
+      cc: cc ? [cc] : undefined,
+      subject,
+      html,
+      text,
+    }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`email_send_failed:${res.status}:${body.slice(0, 200)}`);
+  }
+}
+
+function escapeHtml(input: string) {
+  return input
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
 async function submitWaitlist(formData: FormData) {
   "use server";
 
@@ -66,14 +182,36 @@ async function submitWaitlist(formData: FormData) {
     const looksLikeSchemaMismatch = code === "PGRST204" || code === "42703";
 
     if (looksLikeMissingColumn || looksLikeSchemaMismatch) {
-      error = (
-        await supabase.from("dj_waitlist").upsert(payloadBase, { onConflict: "email" })
-      ).error;
+      error = (await supabase.from("dj_waitlist").upsert(payloadBase, { onConflict: "email" }))
+        .error;
     }
   }
 
   if (error) {
     redirect(`/dj-waitlist?error=${safeParam("submit")}`);
+  }
+
+  // ✅ NEW: Send confirmation email AFTER successful DB save
+  try {
+    await sendDjWaitlistEmail({
+      toEmail: email,
+      stageName: stage_name,
+      city,
+      experienceBand: experience_band,
+      instagram: instagram || null,
+      genres: genres || null,
+    });
+  } catch (e: any) {
+    const msg = String(e?.message ?? e ?? "");
+
+    // If email isn’t configured, give a clear error so we fix env vars
+    if (msg.includes("email_not_configured")) {
+      redirect("/dj-waitlist?error=email_config");
+    }
+
+    // If email send fails, still confirm application, but show a warning
+    // (We keep the application saved in DB — no loss.)
+    redirect("/dj-waitlist?submitted=1&email=failed");
   }
 
   redirect("/dj-waitlist?submitted=1");
@@ -82,11 +220,12 @@ async function submitWaitlist(formData: FormData) {
 export default async function DjWaitlistPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ submitted?: string; error?: string; src?: string }>;
+  searchParams?: Promise<{ submitted?: string; error?: string; src?: string; email?: string }>;
 }) {
   const sp = (await searchParams) ?? {};
   const submitted = String(sp.submitted ?? "").trim() === "1";
   const error = String(sp.error ?? "").trim();
+  const emailFlag = String(sp.email ?? "").trim();
 
   // Optional prefill from URL: /dj-waitlist?src=instagram
   const srcPrefill = String(sp.src ?? "").trim();
@@ -155,7 +294,7 @@ export default async function DjWaitlistPage({
               </div>
             </div>
 
-            {/* ✅ NEW: Founding DJ Rules + Benefits (policy block) */}
+            {/* ✅ Founding DJ Rules + Benefits (policy block) */}
             <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <p className="text-sm font-semibold">Founding DJ program</p>
@@ -200,10 +339,23 @@ export default async function DjWaitlistPage({
               <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
                 <p className="text-sm font-semibold">Application received ✅</p>
                 <p className="mt-2 text-sm text-white/70">
-                  Thanks for applying to become a Founding DJ on {APP_NAME}. We review
-                  applications in batches. If approved, you’ll receive a private invite to
-                  complete your profile.
+                  Thanks for applying to become a Founding DJ on {APP_NAME}. We’ve received your
+                  application and our team reviews submissions in batches. If approved, you’ll
+                  receive a private invite email with next steps to complete your profile.
                 </p>
+
+                <div className="mt-4 rounded-2xl border border-white/10 bg-black/30 p-4">
+                  {emailFlag === "failed" ? (
+                    <p className="text-sm text-white/80">
+                      Heads up: we saved your application, but the confirmation email didn’t send.
+                      Please check your email address and try again later, or contact SpinBook HQ support.
+                    </p>
+                  ) : (
+                    <p className="text-sm text-white/80">
+                      Please check your inbox (and spam/promotions) for a confirmation email.
+                    </p>
+                  )}
+                </div>
 
                 <div className="mt-5 flex flex-col gap-3 sm:flex-row">
                   <Link
@@ -232,6 +384,11 @@ export default async function DjWaitlistPage({
                   <div className="mt-4 rounded-2xl border border-white/10 bg-black/40 p-4 text-sm text-white/80">
                     {error === "missing" ? (
                       <p>Please complete the required fields and try again.</p>
+                    ) : error === "email_config" ? (
+                      <p>
+                        Application saved, but email isn’t configured yet. SpinBook HQ team: set
+                        RESEND_API_KEY and RESEND_FROM in Vercel env vars.
+                      </p>
                     ) : (
                       <p>Something went wrong. Please try again.</p>
                     )}
