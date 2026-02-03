@@ -7,8 +7,7 @@ import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
-// Supports both old bad-encoding inputs and new clean values.
-type ExperienceBand = "1â€“3" | "3â€“5" | "5+" | "1-3" | "3-5";
+type ExperienceBand = "1-3" | "3-5" | "5+";
 
 function clean(s: unknown) {
   return String(s ?? "").trim();
@@ -31,29 +30,6 @@ function escapeHtml(input: string) {
     .replaceAll("'", "&#039;");
 }
 
-// ✅ Normalizes weird dash encodings to DB-safe values
-function normalizeExperienceBand(raw: string): ExperienceBand {
-  const v = clean(raw);
-
-  if (v === "5+" || v.toLowerCase() === "5+") return "5+";
-
-  // Convert any non-standard dash sequence to a normal "-"
-  // Catches: "1â€“3", "1–3", "1—3", etc.
-  const normalized = v.replace(/[^\d+]+/g, "-");
-
-  if (normalized === "1-3") return "1-3";
-  if (normalized === "3-5") return "3-5";
-
-  return v as ExperienceBand;
-}
-
-function experienceLabelForEmail(band: ExperienceBand) {
-  if (band === "1-3" || band === "1â€“3") return "1-3 years";
-  if (band === "3-5" || band === "3â€“5") return "3-5 years";
-  if (band === "5+") return "5+ years";
-  return String(band);
-}
-
 async function sendWaitlistConfirmationEmail(args: {
   toEmail: string;
   stageName: string;
@@ -63,7 +39,7 @@ async function sendWaitlistConfirmationEmail(args: {
   genres?: string | null;
 }) {
   const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.RESEND_FROM_EMAIL; // already set in Vercel
+  const from = process.env.RESEND_FROM_EMAIL;
   const cc = "spinbookhq@gmail.com";
 
   if (!apiKey || !from) {
@@ -72,44 +48,32 @@ async function sendWaitlistConfirmationEmail(args: {
 
   const subject = `✅ You’re in — ${APP_NAME} Founding DJ Waitlist`;
 
-  const safeStage = (args.stageName || "DJ").toString().trim();
-  const safeCity = (args.city || "—").toString().trim();
-  const safeExp = experienceLabelForEmail(args.experienceBand);
-  const safeInstagram = (args.instagram || "").toString().trim() || "—";
-  const safeGenres = (args.genres || "").toString().trim() || "—";
+  const safeStage = args.stageName || "DJ";
+  const safeCity = args.city || "—";
+  const safeExp =
+    args.experienceBand === "1-3"
+      ? "1–3 years"
+      : args.experienceBand === "3-5"
+      ? "3–5 years"
+      : "5+ years";
 
   const html = `
-  <div style="font-family: Arial, Helvetica, sans-serif; line-height:1.55; color:#111;">
-    <h2 style="margin:0 0 10px;">Application received ✅</h2>
+    <div style="font-family:Arial,Helvetica,sans-serif;line-height:1.55;color:#111">
+      <h2>Application received ✅</h2>
+      <p>Hey ${escapeHtml(safeStage)},</p>
+      <p>We’ve received your application for the <b>${escapeHtml(
+        APP_NAME
+      )} Founding DJ Waitlist</b>.</p>
 
-    <p style="margin:0 0 12px;">
-      Hey ${escapeHtml(safeStage)},<br/>
-      We’ve received your application for the <b>${escapeHtml(APP_NAME)} Founding DJ Waitlist</b>.
-    </p>
+      <div style="margin:16px 0;padding:12px;border:1px solid #e5e7eb;border-radius:12px;background:#fafafa">
+        <b>Your application summary</b><br/>
+        City: ${escapeHtml(safeCity)}<br/>
+        Experience: ${escapeHtml(safeExp)}
+      </div>
 
-    <div style="margin:16px 0; padding:12px 14px; border:1px solid #e5e7eb; border-radius:12px; background:#fafafa;">
-      <p style="margin:0 0 6px;"><b>Your application summary</b></p>
-      <p style="margin:0; font-size:14px;">
-        <b>City:</b> ${escapeHtml(safeCity)}<br/>
-        <b>Experience:</b> ${escapeHtml(safeExp)}<br/>
-        <b>Instagram / Website:</b> ${escapeHtml(safeInstagram)}<br/>
-        <b>Genres:</b> ${escapeHtml(safeGenres)}
-      </p>
+      <p>If approved, you’ll receive a private invite to complete your DJ profile.</p>
+      <p style="font-size:13px;color:#555">— SpinBook HQ Team</p>
     </div>
-
-    <p style="margin:0 0 12px;">
-      What happens next:
-      <br/>• We review applications in batches
-      <br/>• If approved, you’ll receive a <b>private invite link</b> to complete your DJ profile
-      <br/>• Founding DJs get priority visibility when client bookings open
-    </p>
-
-    <p style="margin:0 0 10px; font-size:13px; color:#555;">
-      If you don’t see this email in 2–3 minutes, check Spam/Promotions.
-    </p>
-
-    <p style="margin:0; font-size:13px; color:#555;">— SpinBook HQ Team</p>
-  </div>
   `;
 
   const res = await fetch("https://api.resend.com/emails", {
@@ -128,8 +92,7 @@ async function sendWaitlistConfirmationEmail(args: {
   });
 
   if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`email_send_failed:${res.status}:${body.slice(0, 300)}`);
+    throw new Error("email_send_failed");
   }
 }
 
@@ -139,50 +102,26 @@ async function submitWaitlist(formData: FormData) {
   const stage_name = clean(formData.get("stage_name"));
   const email = cleanLower(formData.get("email"));
   const city = clean(formData.get("city"));
+  const experience_band = clean(
+    formData.get("experience_band")
+  ) as ExperienceBand;
 
-  const experience_raw = clean(formData.get("experience_band"));
-  const experience_band = normalizeExperienceBand(experience_raw);
-
-  const instagram = clean(formData.get("instagram"));
-  const genres = clean(formData.get("genres"));
-
-  // Optional attribution (safe): /dj-waitlist?src=instagram
-  const source = clean(formData.get("source"));
-
-  if (!stage_name || !email || !city || !experience_raw) {
+  if (!stage_name || !email || !city || !experience_band) {
     redirect("/dj-waitlist?error=missing");
   }
 
   const supabase = await createClient();
 
-  const payloadBase: any = {
+  const { error } = await supabase.from("dj_waitlist").insert({
     stage_name,
     email,
     city,
-    experience_band, // normalized
-    instagram: instagram || null,
-    genres: genres || null,
+    experience_band,
     status: "pending",
-  };
+  });
 
-  const payloadWithSource = source ? { ...payloadBase, source } : payloadBase;
-
-  // INSERT; treat duplicates as success
-  const { error: insertError } = await supabase.from("dj_waitlist").insert(payloadWithSource);
-
-  if (insertError) {
-    const msg = String(insertError?.message ?? "").toLowerCase();
-    const code = String(insertError?.code ?? "");
-
-    const isDuplicate =
-      code === "23505" ||
-      msg.includes("duplicate") ||
-      msg.includes("unique") ||
-      msg.includes("already exists");
-
-    if (!isDuplicate) {
-      redirect(`/dj-waitlist?error=${safeParam("submit")}`);
-    }
+  if (error && !String(error.message).includes("duplicate")) {
+    redirect(`/dj-waitlist?error=${safeParam("submit")}`);
   }
 
   try {
@@ -191,8 +130,6 @@ async function submitWaitlist(formData: FormData) {
       stageName: stage_name,
       city,
       experienceBand: experience_band,
-      instagram: instagram || null,
-      genres: genres || null,
     });
     redirect("/dj-waitlist?submitted=1");
   } catch {
@@ -203,285 +140,59 @@ async function submitWaitlist(formData: FormData) {
 export default async function DjWaitlistPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ submitted?: string; error?: string; src?: string; email?: string }>;
+  searchParams?: Promise<{ submitted?: string; error?: string; email?: string }>;
 }) {
   const sp = (await searchParams) ?? {};
-  const submitted = String(sp.submitted ?? "").trim() === "1";
-  const error = String(sp.error ?? "").trim();
-  const emailFlag = String(sp.email ?? "").trim();
-  const srcPrefill = String(sp.src ?? "").trim();
+  const submitted = sp.submitted === "1";
+  const emailFailed = sp.email === "failed";
 
   return (
     <main className="min-h-screen bg-black text-white">
-      <section className="relative overflow-hidden border-b border-white/10">
-        <div className="pointer-events-none absolute inset-0 z-0">
-          <div className="absolute inset-0 bg-gradient-to-r from-purple-950/70 via-black to-fuchsia-950/50" />
-          <div className="absolute -top-48 left-1/2 h-96 w-[70rem] -translate-x-1/2 rounded-full bg-purple-500/20 blur-3xl" />
-          <div className="absolute -top-40 right-[-12rem] h-96 w-[40rem] rounded-full bg-fuchsia-500/15 blur-3xl" />
-          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/75" />
-        </div>
-
-        <div className="relative z-10 mx-auto max-w-3xl px-6 py-16 sm:py-20">
-          <div className="space-y-6">
-            <div className="flex flex-wrap items-center gap-2">
-              <p className="inline-flex items-center rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs text-white/85">
-                Founding DJ access • Invite-only onboarding
-              </p>
-              <p className="inline-flex items-center rounded-full border border-white/10 bg-black/30 px-3 py-1 text-xs text-white/70">
-                US + Canada • Nationwide
-              </p>
-            </div>
-
-            <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
-              Become a Founding DJ on <span className="text-white">{APP_NAME}</span>
-            </h1>
-
-            <p className="text-sm leading-relaxed text-white/75">
-              We’re onboarding a limited number of professional DJs across the{" "}
-              <span className="font-semibold text-white">United States</span> and{" "}
-              <span className="font-semibold text-white">Canada</span> before public client
-              bookings open. Founding DJs get early access and priority placement when
-              the marketplace unlocks.
+      <section className="mx-auto max-w-3xl px-6 py-20">
+        {submitted ? (
+          <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
+            <h2 className="text-lg font-semibold">Application received ✅</h2>
+            <p className="mt-2 text-sm text-white/70">
+              Thanks for applying to become a Founding DJ on {APP_NAME}.
             </p>
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
-                <p className="text-sm font-semibold">Founding DJ benefits</p>
-                <ul className="mt-3 space-y-2 text-sm text-white/70">
-                  <li>• Priority placement at launch</li>
-                  <li>• Early access to booking tools</li>
-                  <li>• Verified profile + premium presentation</li>
-                  <li>• Spotlight opportunities as we scale</li>
-                </ul>
-              </div>
-
-              <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
-                <p className="text-sm font-semibold">How it works</p>
-                <ol className="mt-3 space-y-2 text-sm text-white/70">
-                  <li>1) Apply to the waitlist</li>
-                  <li>2) We review in batches</li>
-                  <li>3) Approved DJs receive a private invite</li>
-                </ol>
-
-                <div className="mt-4 rounded-2xl border border-white/10 bg-black/30 p-4">
-                  <p className="text-xs font-semibold text-white/80">Client bookings are not open yet</p>
-                  <p className="mt-1 text-xs text-white/60">
-                    This phase is DJ onboarding only to ensure quality from day one.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <p className="text-sm font-semibold">Founding DJ program</p>
-                <span className="inline-flex items-center rounded-full border border-white/10 bg-black/30 px-3 py-1 text-xs font-semibold text-white/70">
-                  Simple • Professional • Nationwide
-                </span>
-              </div>
-
-              <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                <div className="rounded-2xl border border-white/10 bg-black/25 p-5">
-                  <p className="text-xs font-extrabold tracking-[0.18em] text-white/60">BENEFITS</p>
-                  <ul className="mt-3 space-y-2 text-sm text-white/70">
-                    <li>• Founding DJ badge + priority placement</li>
-                    <li>• Early access to profile + workflow tools</li>
-                    <li>• Featured visibility during launch window</li>
-                    <li>• Direct line for feedback while we build</li>
-                  </ul>
-                </div>
-
-                <div className="rounded-2xl border border-white/10 bg-black/25 p-5">
-                  <p className="text-xs font-extrabold tracking-[0.18em] text-white/60">EXPECTATIONS</p>
-                  <ul className="mt-3 space-y-2 text-sm text-white/70">
-                    <li>• Real DJ identity + legit offering</li>
-                    <li>• Keep your profile current (city, genres, pricing)</li>
-                    <li>• Once clients unlock: respond within ~24 hours</li>
-                    <li>• Early phase: no booking guarantees</li>
-                  </ul>
-                </div>
-              </div>
-
-              <p className="mt-4 text-xs text-white/55">
-                By applying, you’re requesting early access. If approved, we’ll email your invite instructions.
+            {emailFailed && (
+              <p className="mt-3 text-xs text-white/60">
+                Your application was saved, but the confirmation email did not send.
               </p>
-            </div>
-
-            {submitted ? (
-              <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
-                <p className="text-sm font-semibold">Application received ✅</p>
-
-                <p className="mt-2 text-sm text-white/70">
-                  Thank you for applying to become a <span className="font-semibold text-white">Founding DJ</span> on{" "}
-                  <span className="font-semibold text-white">{APP_NAME}</span>. Your application has been successfully
-                  submitted and is now in our review queue.
-                </p>
-
-                <p className="mt-3 text-sm text-white/70">
-                  We review applications in batches. If approved, you’ll receive an email with your{" "}
-                  <span className="font-semibold text-white">private invite link</span> to complete your DJ profile.
-                </p>
-
-                {emailFlag === "failed" ? (
-                  <div className="mt-4 rounded-2xl border border-white/10 bg-black/30 p-4">
-                    <p className="text-xs text-white/70">
-                      Your application was saved, but the confirmation email did not send. Please try again later.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="mt-4 rounded-2xl border border-white/10 bg-black/30 p-4">
-                    <p className="text-xs text-white/70">
-                      Please check your inbox (and spam/promotions) for your confirmation email.
-                    </p>
-                  </div>
-                )}
-
-                <div className="mt-5 flex flex-col gap-3 sm:flex-row">
-                  <Link
-                    href="/"
-                    className="inline-flex items-center justify-center rounded-full border border-white/15 bg-white/5 px-6 py-3 text-sm font-semibold text-white hover:bg-white/10"
-                  >
-                    Back to home
-                  </Link>
-
-                  <Link
-                    href="/login?dj=1"
-                    className="inline-flex items-center justify-center rounded-full bg-white px-6 py-3 text-sm font-semibold text-black hover:bg-white/90"
-                  >
-                    DJ login
-                  </Link>
-                </div>
-              </div>
-            ) : (
-              <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
-                <p className="text-sm font-semibold">Apply to the Founding DJ waitlist</p>
-                <p className="mt-2 text-sm text-white/70">
-                  Approved DJs will receive a private invitation to complete their profile.
-                </p>
-
-                {error ? (
-                  <div className="mt-4 rounded-2xl border border-white/10 bg-black/40 p-4 text-sm text-white/80">
-                    {error === "missing" ? (
-                      <p>Please complete the required fields and try again.</p>
-                    ) : (
-                      <p>Something went wrong. Please try again.</p>
-                    )}
-                  </div>
-                ) : null}
-
-                <form action={submitWaitlist} className="mt-6 space-y-4">
-                  <input type="hidden" name="source" value={srcPrefill} />
-
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <label className="text-xs text-white/70">DJ / Stage Name *</label>
-                      <input
-                        name="stage_name"
-                        required
-                        placeholder="e.g., DJ Nova"
-                        className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-white placeholder:text-white/40 outline-none focus:border-white/25"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className="text-xs text-white/70">Email Address *</label>
-                      <input
-                        name="email"
-                        type="email"
-                        required
-                        placeholder="you@example.com"
-                        className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-white placeholder:text-white/40 outline-none focus:border-white/25"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className="text-xs text-white/70">Primary City / Location *</label>
-                      <input
-                        name="city"
-                        required
-                        placeholder="e.g., Toronto, ON / Houston, TX"
-                        className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-white placeholder:text-white/40 outline-none focus:border-white/25"
-                      />
-                      <p className="text-[11px] text-white/50">US + Canada only for this founding launch.</p>
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className="text-xs text-white/70">Years of DJ Experience *</label>
-                      <select
-                        name="experience_band"
-                        required
-                        className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-white outline-none focus:border-white/25"
-                        defaultValue=""
-                      >
-                        <option value="" disabled>
-                          Select…
-                        </option>
-
-                        {/* ✅ FIX: clean values + clean labels */}
-                        <option value="1-3">1-3 years</option>
-                        <option value="3-5">3-5 years</option>
-                        <option value="5+">5+ years</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <label className="text-xs text-white/70">Instagram / Website (optional)</label>
-                      <input
-                        name="instagram"
-                        placeholder="e.g., https://instagram.com/yourdjhandle"
-                        className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-white placeholder:text-white/40 outline-none focus:border-white/25"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className="text-xs text-white/70">Genres / Specialties (optional)</label>
-                      <input
-                        name="genres"
-                        placeholder="e.g., Afrobeats, Weddings, House"
-                        className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-white placeholder:text-white/40 outline-none focus:border-white/25"
-                      />
-                    </div>
-                  </div>
-
-                  <button
-                    type="submit"
-                    className="inline-flex w-full items-center justify-center rounded-full bg-white px-6 py-3 text-sm font-semibold text-black hover:bg-white/90"
-                  >
-                    Apply to join
-                  </button>
-
-                  <p className="text-xs text-white/55">
-                    By applying, you agree to be contacted about early access. No spam.
-                  </p>
-
-                  <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
-                    <p className="text-xs font-semibold text-white/80">Already approved?</p>
-                    <p className="mt-1 text-xs text-white/60">
-                      Use the DJ login link:{" "}
-                      <Link href="/login?dj=1" className="text-white/80 underline underline-offset-4">
-                        Continue to DJ login
-                      </Link>
-                    </p>
-                  </div>
-                </form>
-              </div>
             )}
-          </div>
-        </div>
-      </section>
 
-      <section className="border-t border-white/10 bg-black">
-        <div className="mx-auto max-w-3xl px-6 py-10 text-sm text-white/60">
-          <p>
-            Not a DJ?{" "}
-            <Link href="/" className="text-white/80 underline underline-offset-4">
-              Return to the homepage
-            </Link>
-            .
-          </p>
-        </div>
+            <div className="mt-5 flex gap-3">
+              <Link href="/" className="rounded-full border px-5 py-2">
+                Back to home
+              </Link>
+              <Link
+                href="/login?dj=1"
+                className="rounded-full bg-white px-5 py-2 text-black"
+              >
+                DJ login
+              </Link>
+            </div>
+          </div>
+        ) : (
+          <form action={submitWaitlist} className="space-y-4">
+            <input name="stage_name" placeholder="DJ / Stage Name" required />
+            <input name="email" type="email" placeholder="Email Address" required />
+            <input name="city" placeholder="City / Location" required />
+
+            {/* ✅ FIXED DROPDOWN */}
+            <select name="experience_band" required defaultValue="">
+              <option value="" disabled>
+                Select…
+              </option>
+              <option value="1-3">1-3 years</option>
+              <option value="3-5">3-5 years</option>
+              <option value="5+">5+ years</option>
+            </select>
+
+            <button type="submit">Apply to join</button>
+          </form>
+        )}
       </section>
     </main>
   );
