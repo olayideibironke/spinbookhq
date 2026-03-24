@@ -79,6 +79,29 @@ export default async function Home() {
 
   return (
     <main className="min-h-screen bg-black text-white">
+      {/* TOP ANNOUNCEMENT BAR */}
+      <section className="border-b border-white/10 bg-white/[0.03]">
+        <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-3 px-6 py-3 text-center sm:flex-row sm:text-left">
+          <p className="text-xs font-medium tracking-[0.14em] text-white/75 uppercase">
+            Founding DJ onboarding now in progress across select cities
+          </p>
+          <div className="flex flex-wrap items-center justify-center gap-3 sm:justify-end">
+            <Link
+              href="/djs"
+              className="text-xs font-semibold text-white/85 underline underline-offset-4 hover:text-white"
+            >
+              Browse DJs
+            </Link>
+            <Link
+              href="/dj-waitlist"
+              className="text-xs font-semibold text-white/60 underline underline-offset-4 hover:text-white/85"
+            >
+              DJ access status
+            </Link>
+          </div>
+        </div>
+      </section>
+
       {/* HERO */}
       <section className="relative overflow-hidden border-b border-white/10">
         {/* hero background wash */}
