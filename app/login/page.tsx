@@ -5,6 +5,8 @@ import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createServerClient } from "@supabase/ssr";
 
+export const dynamic = "force-dynamic";
+
 type Mode = "signin" | "signup" | "forgot";
 type Status = "success" | "error" | null;
 
@@ -67,6 +69,23 @@ function normalizeForgotPasswordErrorMessage(message?: string | null) {
   }
 
   return "We couldn’t send the reset link right now. Please try again.";
+}
+
+async function getAppOrigin() {
+  if (process.env.NODE_ENV === "production") {
+    return "https://spinbookhq.com";
+  }
+
+  try {
+    const headerStore = await headers();
+    const origin = headerStore.get("origin")?.trim();
+    if (origin) return origin;
+
+    const host = headerStore.get("host")?.trim();
+    if (host) return `http://${host}`;
+  } catch {}
+
+  return "http://localhost:3000";
 }
 
 function ClientComingSoonCard() {
@@ -177,17 +196,15 @@ export default async function LoginPage(props: {
   async function authAction(formData: FormData) {
     "use server";
 
-    const cookieStore = await cookies();
-    const supabase = buildSupabase(cookieStore);
-
     const actionMode = (formData.get("mode") as Mode) ?? "signin";
     const dj = String(formData.get("dj") ?? "").trim() === "1";
-
-    if (!dj) redirect("/login");
-
     const email = String(formData.get("email") ?? "").trim();
     const password = String(formData.get("password") ?? "");
     const confirmPassword = String(formData.get("confirmPassword") ?? "");
+
+    if (!dj) {
+      redirect("/login");
+    }
 
     if (!email) {
       redirect(buildDjLoginUrl(actionMode, "Email is required.", "error"));
@@ -197,141 +214,130 @@ export default async function LoginPage(props: {
       redirect(buildDjLoginUrl(actionMode, "Password is required.", "error"));
     }
 
-    const origin =
-      (await headers()).get("origin")?.trim() || "https://spinbookhq.com";
+    let redirectTo: string | null = null;
+    let nextMode: Mode = actionMode;
+    let nextStatus: Status = "error";
+    let nextMessage =
+      "We hit a temporary issue while processing your request. Please try again.";
 
-    if (actionMode === "signup") {
-      if (!confirmPassword) {
-        redirect(
-          buildDjLoginUrl("signup", "Please confirm your password.", "error")
-        );
-      }
+    try {
+      const cookieStore = await cookies();
+      const supabase = buildSupabase(cookieStore);
+      const origin = await getAppOrigin();
 
-      if (password !== confirmPassword) {
-        redirect(
-          buildDjLoginUrl(
-            "signup",
-            "Passwords do not match. Please enter the same password in both fields.",
-            "error"
-          )
-        );
-      }
+      if (actionMode === "signup") {
+        if (!confirmPassword) {
+          nextMode = "signup";
+          nextMessage = "Please confirm your password.";
+        } else if (password !== confirmPassword) {
+          nextMode = "signup";
+          nextMessage =
+            "Passwords do not match. Please enter the same password in both fields.";
+        } else {
+          const { data: emailExists, error: emailExistsError } =
+            await supabase.rpc("auth_email_exists", {
+              check_email: email,
+            });
 
-      const { data: emailExists, error: emailExistsError } = await supabase.rpc(
-        "auth_email_exists",
-        {
-          check_email: email,
+          if (emailExistsError) {
+            nextMode = "signup";
+            nextMessage =
+              "We could not verify account status right now. Please try again.";
+          } else if (emailExists) {
+            nextMode = "signin";
+            nextMessage =
+              "This email already has an account. Please sign in or reset your password.";
+          } else {
+            const { data: isApproved, error: inviteError } = await supabase.rpc(
+              "is_dj_email_approved",
+              {
+                check_email: email,
+              }
+            );
+
+            if (inviteError) {
+              nextMode = "signup";
+              nextMessage =
+                "We could not verify your onboarding access right now. Please try again.";
+            } else if (!isApproved) {
+              nextMode = "signup";
+              nextMessage =
+                "This email is not currently approved for DJ onboarding. Please use the invited email address or contact SpinBook HQ.";
+            } else {
+              const emailRedirectTo = `${origin}/auth/callback?next=${encodeURIComponent(
+                "/dashboard/profile"
+              )}`;
+
+              const { error } = await supabase.auth.signUp({
+                email,
+                password,
+                options: {
+                  emailRedirectTo,
+                },
+              });
+
+              if (error) {
+                nextMode = "signup";
+                nextMessage = error.message;
+              } else {
+                nextMode = "signup";
+                nextStatus = "success";
+                nextMessage =
+                  "Account created. Check your email for your confirmation link. After you confirm your email, return here and sign in to continue to your profile setup.";
+              }
+            }
+          }
         }
-      );
+      } else if (actionMode === "forgot") {
+        const passwordResetRedirectTo = `${origin}/reset-password`;
 
-      if (emailExistsError) {
-        redirect(
-          buildDjLoginUrl(
-            "signup",
-            "We could not verify account status right now. Please try again.",
-            "error"
-          )
-        );
-      }
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+          redirectTo: passwordResetRedirectTo,
+        });
 
-      if (emailExists) {
-        redirect(
-          buildDjLoginUrl(
-            "signin",
-            "This email already has an account. Please sign in or reset your password.",
-            "error"
-          )
-        );
-      }
-
-      const { data: isApproved, error: inviteError } = await supabase.rpc(
-        "is_dj_email_approved",
-        {
-          check_email: email,
+        if (error) {
+          nextMode = "forgot";
+          nextMessage = normalizeForgotPasswordErrorMessage(error.message);
+        } else {
+          nextMode = "forgot";
+          nextStatus = "success";
+          nextMessage =
+            "If an account exists for this email, a password reset link has been sent to the inbox.";
         }
-      );
+      } else {
+        const { error } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
 
-      if (inviteError) {
-        redirect(
-          buildDjLoginUrl(
-            "signup",
-            "We could not verify your onboarding access right now. Please try again.",
-            "error"
-          )
-        );
+        if (error) {
+          nextMode = "signin";
+          nextMessage = error.message;
+        } else {
+          redirectTo = "/dashboard/profile";
+        }
       }
+    } catch {
+      nextMode = actionMode;
+      nextStatus = "error";
 
-      if (!isApproved) {
-        redirect(
-          buildDjLoginUrl(
-            "signup",
-            "This email is not currently approved for DJ onboarding. Please use the invited email address or contact SpinBook HQ.",
-            "error"
-          )
-        );
+      if (actionMode === "signup") {
+        nextMessage =
+          "We hit a temporary signup issue. Please try again. If your account already exists, use sign in or reset your password.";
+      } else if (actionMode === "forgot") {
+        nextMessage =
+          "We couldn’t send the reset link right now. Please try again shortly.";
+      } else {
+        nextMessage =
+          "We hit a temporary sign-in issue. Please try again.";
       }
-
-      const emailRedirectTo = `${origin}/auth/callback?next=${encodeURIComponent(
-        "/dashboard/profile"
-      )}`;
-
-      const { error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          emailRedirectTo,
-        },
-      });
-
-      if (error) {
-        redirect(buildDjLoginUrl("signup", error.message, "error"));
-      }
-
-      redirect(
-        buildDjLoginUrl(
-          "signup",
-          "Account created. Check your email for your confirmation link. After you confirm your email, return here and sign in to continue to your profile setup.",
-          "success"
-        )
-      );
     }
 
-    if (actionMode === "forgot") {
-      const passwordResetRedirectTo = `${origin}/reset-password`;
-
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: passwordResetRedirectTo,
-      });
-
-      if (error) {
-        redirect(
-          buildDjLoginUrl(
-            "forgot",
-            normalizeForgotPasswordErrorMessage(error.message),
-            "error"
-          )
-        );
-      }
-
-      redirect(
-        buildDjLoginUrl(
-          "forgot",
-          "If an account exists for this email, a password reset link has been sent to the inbox.",
-          "success"
-        )
-      );
+    if (redirectTo) {
+      redirect(redirectTo);
     }
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-
-    if (error) {
-      redirect(buildDjLoginUrl("signin", error.message, "error"));
-    }
-
-    redirect("/dashboard/profile");
+    redirect(buildDjLoginUrl(nextMode, nextMessage, nextStatus));
   }
 
   const inputClass =
