@@ -5,7 +5,8 @@ import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createServerClient } from "@supabase/ssr";
 
-type Mode = "signin" | "signup";
+type Mode = "signin" | "signup" | "forgot";
+type Status = "success" | "error" | null;
 
 function buildSupabase(cookieStore: Awaited<ReturnType<typeof cookies>>) {
   return createServerClient(
@@ -29,11 +30,49 @@ function buildSupabase(cookieStore: Awaited<ReturnType<typeof cookies>>) {
   );
 }
 
+function buildDjLoginUrl(
+  mode: Mode,
+  message?: string | null,
+  status?: Status
+) {
+  const params = new URLSearchParams();
+  params.set("dj", "1");
+  params.set("mode", mode);
+
+  if (message) {
+    params.set("msg", message);
+  }
+
+  if (status) {
+    params.set("status", status);
+  }
+
+  return `/login?${params.toString()}`;
+}
+
+function normalizeForgotPasswordErrorMessage(message?: string | null) {
+  const raw = (message ?? "").trim();
+  const lower = raw.toLowerCase();
+
+  if (!raw) {
+    return "We couldn’t send the reset link right now. Please try again.";
+  }
+
+  if (
+    lower.includes("rate limit") ||
+    lower.includes("email rate limit exceeded") ||
+    lower.includes("too many requests")
+  ) {
+    return "Too many reset requests were sent recently. Please wait a little and try again.";
+  }
+
+  return "We couldn’t send the reset link right now. Please try again.";
+}
+
 function ClientComingSoonCard() {
   return (
     <main className="min-h-screen bg-black text-white">
       <section className="relative overflow-hidden border-b border-white/10">
-        {/* Premium background wash */}
         <div className="pointer-events-none absolute inset-0 z-0">
           <div className="absolute inset-0 bg-gradient-to-r from-purple-950/70 via-black to-fuchsia-950/50" />
           <div className="absolute -top-48 left-1/2 h-96 w-[70rem] -translate-x-1/2 rounded-full bg-purple-500/20 blur-3xl" />
@@ -53,8 +92,9 @@ function ClientComingSoonCard() {
 
             <p className="mt-3 text-sm leading-relaxed text-white/75">
               SpinBook HQ is currently onboarding a limited number of{" "}
-              <span className="font-semibold text-white">Founding DJs</span> ahead of public
-              launch. Client booking access will open shortly in select cities.
+              <span className="font-semibold text-white">Founding DJs</span>{" "}
+              ahead of public launch. Client booking access will open shortly in
+              select cities.
             </p>
 
             <div className="mt-7 grid gap-3 sm:grid-cols-2">
@@ -62,7 +102,7 @@ function ClientComingSoonCard() {
                 href="/dj-waitlist"
                 className="inline-flex items-center justify-center rounded-full bg-white px-6 py-3 text-sm font-semibold text-black hover:bg-white/90"
               >
-                Become a Founding DJ
+                View DJ onboarding status
               </Link>
 
               <Link
@@ -74,7 +114,7 @@ function ClientComingSoonCard() {
             </div>
 
             <div className="mt-6 rounded-2xl border border-white/10 bg-black/30 p-4 text-sm text-white/70">
-              <p className="font-semibold text-white/85">Are you a DJ?</p>
+              <p className="font-semibold text-white/85">Are you a selected DJ?</p>
               <p className="mt-1">
                 Use the DJ login link:
                 <span className="ml-2 inline-flex">
@@ -99,7 +139,12 @@ function ClientComingSoonCard() {
 }
 
 export default async function LoginPage(props: {
-  searchParams?: Promise<{ mode?: string; msg?: string; dj?: string }>;
+  searchParams?: Promise<{
+    mode?: string;
+    msg?: string;
+    dj?: string;
+    status?: string;
+  }>;
 }) {
   const resolvedSearchParams = props.searchParams
     ? await props.searchParams
@@ -107,23 +152,27 @@ export default async function LoginPage(props: {
 
   const isDjAccess = String(resolvedSearchParams?.dj ?? "").trim() === "1";
 
-  // ✅ Phase 1 gate: default /login is client "coming soon"
   if (!isDjAccess) {
     return <ClientComingSoonCard />;
   }
 
   const mode: Mode =
-    resolvedSearchParams?.mode === "signup" ? "signup" : "signin";
+    resolvedSearchParams?.mode === "signup"
+      ? "signup"
+      : resolvedSearchParams?.mode === "forgot"
+      ? "forgot"
+      : "signin";
 
   const msg = resolvedSearchParams?.msg
     ? decodeURIComponent(resolvedSearchParams.msg)
     : null;
 
-  const loginUrl = (m: Mode, message?: string | null) => {
-    const base = `/login?dj=1&mode=${m}`;
-    if (message) return `${base}&msg=${encodeURIComponent(message)}`;
-    return base;
-  };
+  const status: Status =
+    resolvedSearchParams?.status === "success"
+      ? "success"
+      : resolvedSearchParams?.status === "error"
+      ? "error"
+      : null;
 
   async function authAction(formData: FormData) {
     "use server";
@@ -134,21 +183,94 @@ export default async function LoginPage(props: {
     const actionMode = (formData.get("mode") as Mode) ?? "signin";
     const dj = String(formData.get("dj") ?? "").trim() === "1";
 
-    // Safety: DJ flag must be present, otherwise send to client gate
     if (!dj) redirect("/login");
 
     const email = String(formData.get("email") ?? "").trim();
     const password = String(formData.get("password") ?? "");
+    const confirmPassword = String(formData.get("confirmPassword") ?? "");
 
-    if (!email || !password) {
-      redirect(loginUrl(actionMode, "Email and password are required."));
+    if (!email) {
+      redirect(buildDjLoginUrl(actionMode, "Email is required.", "error"));
     }
 
-    // ✅ Use the current request origin, fallback to prod domain
+    if (actionMode !== "forgot" && !password) {
+      redirect(buildDjLoginUrl(actionMode, "Password is required.", "error"));
+    }
+
     const origin =
       (await headers()).get("origin")?.trim() || "https://spinbookhq.com";
 
     if (actionMode === "signup") {
+      if (!confirmPassword) {
+        redirect(
+          buildDjLoginUrl("signup", "Please confirm your password.", "error")
+        );
+      }
+
+      if (password !== confirmPassword) {
+        redirect(
+          buildDjLoginUrl(
+            "signup",
+            "Passwords do not match. Please enter the same password in both fields.",
+            "error"
+          )
+        );
+      }
+
+      const { data: emailExists, error: emailExistsError } = await supabase.rpc(
+        "auth_email_exists",
+        {
+          check_email: email,
+        }
+      );
+
+      if (emailExistsError) {
+        redirect(
+          buildDjLoginUrl(
+            "signup",
+            "We could not verify account status right now. Please try again.",
+            "error"
+          )
+        );
+      }
+
+      if (emailExists) {
+        redirect(
+          buildDjLoginUrl(
+            "signin",
+            "This email already has an account. Please sign in or reset your password.",
+            "error"
+          )
+        );
+      }
+
+      const { data: isApproved, error: inviteError } = await supabase.rpc(
+        "is_dj_email_approved",
+        {
+          check_email: email,
+        }
+      );
+
+      if (inviteError) {
+        redirect(
+          buildDjLoginUrl(
+            "signup",
+            "We could not verify your onboarding access right now. Please try again.",
+            "error"
+          )
+        );
+      }
+
+      if (!isApproved) {
+        redirect(
+          buildDjLoginUrl(
+            "signup",
+            "This email is not currently approved for DJ onboarding. Please use the invited email address or contact SpinBook HQ.",
+            "error"
+          )
+        );
+      }
+
       const emailRedirectTo = `${origin}/auth/callback?next=${encodeURIComponent(
         "/dashboard/profile"
       )}`;
@@ -162,13 +284,40 @@ export default async function LoginPage(props: {
       });
 
       if (error) {
-        redirect(loginUrl("signup", error.message));
+        redirect(buildDjLoginUrl("signup", error.message, "error"));
       }
 
       redirect(
-        loginUrl(
-          "signin",
-          "Signup successful. Check your email to confirm. After confirming, you’ll be sent to your profile setup."
+        buildDjLoginUrl(
+          "signup",
+          "Account created. Check your email for your confirmation link. After you confirm your email, return here and sign in to continue to your profile setup.",
+          "success"
+        )
+      );
+    }
+
+    if (actionMode === "forgot") {
+      const passwordResetRedirectTo = `${origin}/reset-password`;
+
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: passwordResetRedirectTo,
+      });
+
+      if (error) {
+        redirect(
+          buildDjLoginUrl(
+            "forgot",
+            normalizeForgotPasswordErrorMessage(error.message),
+            "error"
+          )
+        );
+      }
+
+      redirect(
+        buildDjLoginUrl(
+          "forgot",
+          "If an account exists for this email, a password reset link has been sent to the inbox.",
+          "success"
         )
       );
     }
@@ -179,10 +328,9 @@ export default async function LoginPage(props: {
     });
 
     if (error) {
-      redirect(loginUrl("signin", error.message));
+      redirect(buildDjLoginUrl("signin", error.message, "error"));
     }
 
-    // ✅ After login, take DJs to onboarding/profile first
     redirect("/dashboard/profile");
   }
 
@@ -190,6 +338,32 @@ export default async function LoginPage(props: {
     "w-full rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-sm text-white " +
     "placeholder:text-white/45 shadow-sm outline-none transition " +
     "focus:border-white/20 focus:bg-white/[0.08] focus:ring-2 focus:ring-white/15";
+
+  const infoCardClass =
+    status === "success"
+      ? "mt-5 rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-4 text-sm text-emerald-50"
+      : "mt-5 rounded-2xl border border-red-400/20 bg-red-500/10 p-4 text-sm text-red-50";
+
+  const titleText =
+    mode === "signin"
+      ? "Sign in to continue"
+      : mode === "signup"
+      ? "Create your DJ account"
+      : "Reset your password";
+
+  const badgeText =
+    mode === "signin"
+      ? "SIGN IN"
+      : mode === "signup"
+      ? "INVITE ONLY"
+      : "RECOVERY";
+
+  const primaryButtonText =
+    mode === "signin"
+      ? "Sign in"
+      : mode === "signup"
+      ? "Create DJ account"
+      : "Send reset link";
 
   return (
     <main className="relative px-6 py-14 sm:py-16">
@@ -212,20 +386,43 @@ export default async function LoginPage(props: {
               <h1 className="mt-3 text-3xl font-extrabold tracking-tight text-white">
                 SpinBook HQ
               </h1>
-              <p className="mt-2 text-sm text-white/65">
-                {mode === "signin"
-                  ? "Sign in to continue"
-                  : "Create your DJ account"}
-              </p>
+              <p className="mt-2 text-sm text-white/65">{titleText}</p>
             </div>
 
             <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-white/70">
               <span className="h-1.5 w-1.5 rounded-full bg-white/60" />
-              {mode === "signin" ? "SIGN IN" : "SIGN UP"}
+              {badgeText}
             </span>
           </div>
 
-          <form action={authAction} className="mt-7 space-y-4" suppressHydrationWarning>
+          {mode === "signup" ? (
+            <div className="mt-5 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-white/75">
+              DJ onboarding is currently invite-only. Only pre-approved DJ email
+              addresses can create an account during this phase.
+            </div>
+          ) : null}
+
+          {mode === "forgot" ? (
+            <div className="mt-5 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-white/75">
+              Enter the email address on your account and we’ll send you a secure password reset link.
+            </div>
+          ) : null}
+
+          {msg ? <div className={infoCardClass}>{msg}</div> : null}
+
+          {mode === "signup" && status === "success" ? (
+            <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-white/80">
+              <p className="font-semibold text-white">Next steps</p>
+              <ol className="mt-3 list-decimal space-y-2 pl-5 text-white/75">
+                <li>Open the confirmation email sent to your invited email address.</li>
+                <li>Click the confirmation link in that email.</li>
+                <li>Return to this page and sign in with the same email and password.</li>
+                <li>You will continue to your DJ profile setup.</li>
+              </ol>
+            </div>
+          ) : null}
+
+          <form action={authAction} className="mt-7 space-y-4">
             <input type="hidden" name="mode" value={mode} />
             <input type="hidden" name="dj" value="1" />
 
@@ -243,25 +440,37 @@ export default async function LoginPage(props: {
               />
             </div>
 
-            <div className="space-y-2">
-              <label className="text-sm font-semibold text-white/85">
-                Password
-              </label>
-              <input
-                className={inputClass}
-                type="password"
-                name="password"
-                placeholder="********"
-                required
-                autoComplete={
-                  mode === "signin" ? "current-password" : "new-password"
-                }
-              />
-            </div>
+            {mode !== "forgot" ? (
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-white/85">
+                  Password
+                </label>
+                <input
+                  className={inputClass}
+                  type="password"
+                  name="password"
+                  placeholder="********"
+                  required
+                  autoComplete={
+                    mode === "signin" ? "current-password" : "new-password"
+                  }
+                />
+              </div>
+            ) : null}
 
-            {msg ? (
-              <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-white/80">
-                {msg}
+            {mode === "signup" ? (
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-white/85">
+                  Confirm password
+                </label>
+                <input
+                  className={inputClass}
+                  type="password"
+                  name="confirmPassword"
+                  placeholder="********"
+                  required
+                  autoComplete="new-password"
+                />
               </div>
             ) : null}
 
@@ -269,27 +478,63 @@ export default async function LoginPage(props: {
               className="inline-flex h-11 w-full items-center justify-center rounded-2xl border border-white/10 bg-white/10 px-5 text-sm font-extrabold text-white shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur-md transition hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-white/20"
               type="submit"
             >
-              {mode === "signin" ? "Sign in" : "Sign up"}
+              {primaryButtonText}
             </button>
           </form>
 
-          <form
-            className="mt-4"
-            action={async () => {
-              "use server";
-              const nextMode: Mode = mode === "signin" ? "signup" : "signin";
-              redirect(`/login?dj=1&mode=${nextMode}`);
-            }}
-          >
-            <button
-              className="mt-2 w-full text-sm font-semibold text-white/70 underline decoration-white/20 underline-offset-4 transition hover:text-white/90"
-              type="submit"
-            >
-              {mode === "signin"
-                ? "Need an account? Sign up"
-                : "Already have an account? Sign in"}
-            </button>
-          </form>
+          {mode === "signin" ? (
+            <div className="mt-4 space-y-3">
+              <Link
+                href="/login?dj=1&mode=forgot"
+                className="block w-full text-center text-sm font-semibold text-white/70 underline decoration-white/20 underline-offset-4 transition hover:text-white/90"
+              >
+                Forgot your password?
+              </Link>
+
+              <Link
+                href="/login?dj=1&mode=signup"
+                className="block w-full text-center text-sm font-semibold text-white/70 underline decoration-white/20 underline-offset-4 transition hover:text-white/90"
+              >
+                Have an onboarding invite? Create your account
+              </Link>
+            </div>
+          ) : null}
+
+          {mode === "signup" ? (
+            <div className="mt-4 space-y-3">
+              <Link
+                href="/login?dj=1&mode=signin"
+                className="block w-full text-center text-sm font-semibold text-white/70 underline decoration-white/20 underline-offset-4 transition hover:text-white/90"
+              >
+                Already have an account? Sign in
+              </Link>
+
+              <Link
+                href="/login?dj=1&mode=forgot"
+                className="block w-full text-center text-sm font-semibold text-white/70 underline decoration-white/20 underline-offset-4 transition hover:text-white/90"
+              >
+                Already have an account but forgot your password?
+              </Link>
+            </div>
+          ) : null}
+
+          {mode === "forgot" ? (
+            <div className="mt-4 space-y-3">
+              <Link
+                href="/login?dj=1&mode=signin"
+                className="block w-full text-center text-sm font-semibold text-white/70 underline decoration-white/20 underline-offset-4 transition hover:text-white/90"
+              >
+                Return to sign in
+              </Link>
+
+              <Link
+                href="/login?dj=1&mode=signup"
+                className="block w-full text-center text-sm font-semibold text-white/70 underline decoration-white/20 underline-offset-4 transition hover:text-white/90"
+              >
+                Have an onboarding invite? Create your account
+              </Link>
+            </div>
+          ) : null}
 
           <p className="mt-6 text-xs text-white/45">
             By continuing, you agree to a professional booking workflow. No spam.
