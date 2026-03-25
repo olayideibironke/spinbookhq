@@ -1,35 +1,35 @@
-// FILE: app/dashboard/profile/page.tsx
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { createServerClient } from "@supabase/ssr";
 import { getUser } from "@/lib/auth";
-import { getDjProfile } from "@/lib/djProfiles";
+import { createClient } from "@/lib/supabase/server";
+import SaveProfileButton from "./save-profile-button";
 
 export const dynamic = "force-dynamic";
 
-function buildSupabase(cookieStore: Awaited<ReturnType<typeof cookies>>) {
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll().map((c) => ({
-            name: c.name,
-            value: c.value,
-          }));
-        },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => {
-            cookieStore.set(name, value, options);
-          });
-        },
-      },
-    }
-  );
-}
+const MIN_REQUIRED_PHOTOS = 3;
+
+type DjProfileRow = {
+  user_id: string;
+  stage_name: string | null;
+  slug: string | null;
+  city: string | null;
+  bio: string | null;
+  published: boolean | null;
+  avatar_url: string | null;
+  starting_price: number | null;
+  gallery_urls: string[] | null;
+  social_handle: string | null;
+};
+
+type SocialPlatform = "instagram" | "facebook" | "x" | "snapchat" | "website";
+
+type ParsedSocial = {
+  platform: SocialPlatform;
+  label: string;
+  href: string;
+  storage: string;
+};
 
 function isNonEmptyString(v: unknown) {
   return typeof v === "string" && v.trim().length > 0;
@@ -39,7 +39,6 @@ function toPositiveIntOrNull(v: string) {
   const trimmed = v.trim();
   if (!trimmed) return null;
 
-  // allow "$450" or "450" (strip non-digits safely)
   const digits = trimmed.replace(/[^\d]/g, "");
   if (!digits) return null;
 
@@ -50,6 +49,268 @@ function toPositiveIntOrNull(v: string) {
   if (int <= 0) return null;
 
   return int;
+}
+
+function normalizeSlug(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+function cleanHandle(value: string) {
+  const stripped = value.trim().replace(/\s+/g, "").replace(/^@+/, "");
+  if (!stripped) return "";
+  return `@${stripped}`;
+}
+
+function extractPrimaryPathnamePart(url: URL) {
+  const segments = url.pathname.split("/").filter(Boolean);
+  return segments[0] ?? "";
+}
+
+function buildSocialHref(platform: SocialPlatform, labelOrUrl: string) {
+  if (platform === "website") {
+    return labelOrUrl;
+  }
+
+  const handle = labelOrUrl.replace(/^@/, "");
+
+  if (platform === "instagram") {
+    return `https://www.instagram.com/${handle}`;
+  }
+
+  if (platform === "facebook") {
+    return `https://www.facebook.com/${handle}`;
+  }
+
+  if (platform === "x") {
+    return `https://x.com/${handle}`;
+  }
+
+  return `https://www.snapchat.com/add/${handle}`;
+}
+
+function parseSocialInput(value: string): ParsedSocial | null {
+  const raw = value.trim();
+  if (!raw) return null;
+
+  const lowerRaw = raw.toLowerCase();
+
+  const prefixedMatch = raw.match(/^([a-zA-Z]+)\s*:\s*(.+)$/);
+  if (prefixedMatch) {
+    const prefix = prefixedMatch[1].toLowerCase();
+    const payload = prefixedMatch[2].trim();
+
+    let platform: SocialPlatform | null = null;
+
+    if (prefix === "instagram" || prefix === "ig") platform = "instagram";
+    if (prefix === "facebook" || prefix === "fb") platform = "facebook";
+    if (prefix === "x" || prefix === "twitter") platform = "x";
+    if (prefix === "snapchat" || prefix === "snap") platform = "snapchat";
+    if (
+      prefix === "website" ||
+      prefix === "site" ||
+      prefix === "web" ||
+      prefix === "url"
+    ) {
+      platform = "website";
+    }
+
+    if (!platform) return null;
+
+    if (platform === "website") {
+      try {
+        const url = new URL(
+          /^https?:\/\//i.test(payload) ? payload : `https://${payload}`
+        );
+        const href = url.toString();
+        const label = url.hostname.replace(/^www\./i, "");
+        return {
+          platform,
+          label,
+          href,
+          storage: `website:${href}`,
+        };
+      } catch {
+        return null;
+      }
+    }
+
+    if (/^https?:\/\//i.test(payload)) {
+      try {
+        const url = new URL(payload);
+        const part = extractPrimaryPathnamePart(url);
+        const label = cleanHandle(part || payload);
+        if (!label) return null;
+
+        return {
+          platform,
+          label,
+          href: buildSocialHref(platform, label),
+          storage: `${platform}:${label}`,
+        };
+      } catch {
+        return null;
+      }
+    }
+
+    const label = cleanHandle(payload);
+    if (!label) return null;
+
+    return {
+      platform,
+      label,
+      href: buildSocialHref(platform, label),
+      storage: `${platform}:${label}`,
+    };
+  }
+
+  if (/^https?:\/\//i.test(raw) || /^[a-z0-9-]+\.[a-z]{2,}/i.test(raw)) {
+    try {
+      const url = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
+      const host = url.hostname.toLowerCase().replace(/^www\./, "");
+
+      if (host.includes("instagram.com")) {
+        const label = cleanHandle(extractPrimaryPathnamePart(url));
+        if (!label) return null;
+
+        return {
+          platform: "instagram",
+          label,
+          href: buildSocialHref("instagram", label),
+          storage: `instagram:${label}`,
+        };
+      }
+
+      if (host === "fb.com" || host.includes("facebook.com")) {
+        const label = cleanHandle(extractPrimaryPathnamePart(url));
+        if (!label) return null;
+
+        return {
+          platform: "facebook",
+          label,
+          href: buildSocialHref("facebook", label),
+          storage: `facebook:${label}`,
+        };
+      }
+
+      if (host === "x.com" || host.includes("twitter.com")) {
+        const label = cleanHandle(extractPrimaryPathnamePart(url));
+        if (!label) return null;
+
+        return {
+          platform: "x",
+          label,
+          href: buildSocialHref("x", label),
+          storage: `x:${label}`,
+        };
+      }
+
+      if (host.includes("snapchat.com")) {
+        const segments = url.pathname.split("/").filter(Boolean);
+        const snapTarget =
+          segments[0] === "add" && segments[1] ? segments[1] : segments[0] ?? "";
+        const label = cleanHandle(snapTarget);
+        if (!label) return null;
+
+        return {
+          platform: "snapchat",
+          label,
+          href: buildSocialHref("snapchat", label),
+          storage: `snapchat:${label}`,
+        };
+      }
+
+      const href = url.toString();
+      return {
+        platform: "website",
+        label: url.hostname.replace(/^www\./i, ""),
+        href,
+        storage: `website:${href}`,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  if (lowerRaw.startsWith("@") || /^[a-z0-9._]+$/i.test(raw)) {
+    const label = cleanHandle(raw);
+    if (!label) return null;
+
+    return {
+      platform: "instagram",
+      label,
+      href: buildSocialHref("instagram", label),
+      storage: `instagram:${label}`,
+    };
+  }
+
+  return null;
+}
+
+function formatSocialInputForEditing(value: string | null | undefined) {
+  if (!isNonEmptyString(value)) return "";
+  return String(value);
+}
+
+async function buildUniqueSlug(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  stageName: string,
+  currentSlug?: string | null
+) {
+  const baseSlug = normalizeSlug(stageName);
+
+  if (!baseSlug) return null;
+
+  const { data, error } = await supabase
+    .from("dj_profiles")
+    .select("user_id, slug")
+    .ilike("slug", `${baseSlug}%`);
+
+  if (error) return null;
+
+  const rows = Array.isArray(data) ? data : [];
+  const taken = new Set(
+    rows
+      .filter((row) => row.user_id !== userId && isNonEmptyString(row.slug))
+      .map((row) => String(row.slug))
+  );
+
+  if (
+    currentSlug &&
+    normalizeSlug(currentSlug) === baseSlug &&
+    !taken.has(baseSlug)
+  ) {
+    return baseSlug;
+  }
+
+  if (!taken.has(baseSlug)) {
+    return baseSlug;
+  }
+
+  let i = 2;
+  while (taken.has(`${baseSlug}-${i}`)) {
+    i += 1;
+  }
+
+  return `${baseSlug}-${i}`;
+}
+
+function getProfileGallery(profile: Partial<DjProfileRow> | null | undefined) {
+  const rawGallery = Array.isArray(profile?.gallery_urls)
+    ? profile.gallery_urls.filter((url): url is string => isNonEmptyString(url))
+    : [];
+
+  const avatar =
+    isNonEmptyString(profile?.avatar_url) &&
+    !rawGallery.includes(String(profile?.avatar_url))
+      ? [String(profile?.avatar_url)]
+      : [];
+
+  return [...avatar, ...rawGallery];
 }
 
 function Card({
@@ -103,7 +364,9 @@ export default async function DashboardProfilePage(props: {
   searchParams?: Promise<{ msg?: string }>;
 }) {
   const user = await getUser();
-  if (!user) redirect("/login");
+  if (!user) redirect("/login?dj=1");
+
+  const supabase = await createClient();
 
   const resolvedSearchParams = props.searchParams
     ? await props.searchParams
@@ -113,107 +376,86 @@ export default async function DashboardProfilePage(props: {
     ? decodeURIComponent(resolvedSearchParams.msg)
     : null;
 
-  const profile = await getDjProfile(user.id);
+  const { data: profile } = await supabase
+    .from("dj_profiles")
+    .select(
+      "user_id, stage_name, slug, city, bio, published, avatar_url, starting_price, gallery_urls, social_handle"
+    )
+    .eq("user_id", user.id)
+    .maybeSingle<DjProfileRow>();
 
-  const existingAvatarUrl = isNonEmptyString((profile as any)?.avatar_url)
-    ? String((profile as any).avatar_url)
-    : null;
+  const existingGalleryUrls = getProfileGallery(profile);
+  const existingPhotoCount = existingGalleryUrls.length;
 
   async function saveProfileAction(formData: FormData) {
     "use server";
 
-    const cookieStore = await cookies();
-    const supabase = buildSupabase(cookieStore);
+    const supabase = await createClient();
 
     const {
       data: { user: authedUser },
       error: authedUserError,
     } = await supabase.auth.getUser();
 
-    if (authedUserError || !authedUser) redirect("/login");
+    if (authedUserError || !authedUser) {
+      redirect("/login?dj=1");
+    }
 
     const stage_name = String(formData.get("stage_name") ?? "").trim();
-    const slug = String(formData.get("slug") ?? "").trim();
     const city = String(formData.get("city") ?? "").trim();
     const bioRaw = String(formData.get("bio") ?? "");
     const bio = bioRaw.trim().slice(0, 600);
     const published = String(formData.get("published") ?? "") === "on";
+    const social_handle_input = String(formData.get("social_handle") ?? "").trim();
 
-    // ✅ NEW: Starting price
     const startingPriceRaw = String(formData.get("starting_price") ?? "");
     const starting_price = toPositiveIntOrNull(startingPriceRaw);
 
-    const avatar = formData.get("avatar");
+    const galleryFiles = formData
+      .getAll("gallery")
+      .filter((item): item is File => item instanceof File && item.size > 0);
 
-    // Re-check profile on server
     const { data: currentProfile } = await supabase
       .from("dj_profiles")
-      .select("avatar_url")
+      .select("avatar_url, gallery_urls, slug")
       .eq("user_id", authedUser.id)
-      .maybeSingle<{ avatar_url: string | null }>();
+      .maybeSingle<{
+        avatar_url: string | null;
+        gallery_urls: string[] | null;
+        slug: string | null;
+      }>();
 
-    const hasAvatarAlready =
-      typeof currentProfile?.avatar_url === "string" &&
-      currentProfile.avatar_url.trim().length > 0;
+    const existingGallery = getProfileGallery(currentProfile);
 
-    const avatarFile =
-      avatar instanceof File && avatar.size > 0 ? avatar : null;
-
-    // ✅ Photo REQUIRED (either already uploaded, or newly provided now)
-    if (!hasAvatarAlready && !avatarFile) {
+    if (!stage_name || !city) {
       redirect(
         `/dashboard/profile?msg=${encodeURIComponent(
-          "Profile photo is required. Please upload a clear headshot before continuing."
+          "Stage name and city are required."
         )}`
       );
     }
 
-    if (!stage_name || !slug || !city) {
+    const parsedSocial = parseSocialInput(social_handle_input);
+
+    if (!parsedSocial) {
       redirect(
         `/dashboard/profile?msg=${encodeURIComponent(
-          "Stage name, slug, and city are required."
+          "Enter your social or website in one of these formats: instagram:@djname, facebook:@djpage, x:@djname, snapchat:@djname, or website:https://yourwebsite.com. A plain @handle is treated as Instagram."
         )}`
       );
     }
 
-    const normalizedSlug = slug
-      .toLowerCase()
-      .replace(/[^a-z0-9-]/g, "-")
-      .replace(/-+/g, "-")
-      .replace(/^-|-$/g, "");
+    const totalPhotoCountAfterSave =
+      galleryFiles.length > 0 ? galleryFiles.length : existingGallery.length;
 
-    if (!normalizedSlug) {
+    if (totalPhotoCountAfterSave < MIN_REQUIRED_PHOTOS) {
       redirect(
         `/dashboard/profile?msg=${encodeURIComponent(
-          "Slug is invalid. Use letters, numbers, and hyphens."
+          "You must upload at least 3 photos to complete onboarding. More photos are recommended because they help DJs get more bookings."
         )}`
       );
     }
 
-    const { data: existing } = await supabase
-      .from("dj_profiles")
-      .select("user_id, slug")
-      .eq("slug", normalizedSlug)
-      .maybeSingle<{ user_id: string; slug: string }>();
-
-    if (existing?.user_id && existing.user_id !== authedUser.id) {
-      redirect(
-        `/dashboard/profile?msg=${encodeURIComponent(
-          "That slug is already taken. Try another."
-        )}`
-      );
-    }
-
-    // ✅ If trying to publish, you MUST have an avatar (either existing or uploaded now)
-    if (published && !hasAvatarAlready && !avatarFile) {
-      redirect(
-        `/dashboard/profile?msg=${encodeURIComponent(
-          "You must upload a profile photo before publishing."
-        )}`
-      );
-    }
-
-    // ✅ If trying to publish, Starting Price is REQUIRED
     if (published && !starting_price) {
       redirect(
         `/dashboard/profile?msg=${encodeURIComponent(
@@ -222,57 +464,91 @@ export default async function DashboardProfilePage(props: {
       );
     }
 
-    let avatar_url: string | null = hasAvatarAlready
-      ? currentProfile?.avatar_url ?? null
-      : null;
+    const uniqueSlug = await buildUniqueSlug(
+      supabase,
+      authedUser.id,
+      stage_name,
+      currentProfile?.slug ?? null
+    );
 
-    if (avatarFile) {
-      const bucket = "avatars";
-
-      const ext =
-        avatarFile.type === "image/png"
-          ? "png"
-          : avatarFile.type === "image/webp"
-          ? "webp"
-          : "jpg";
-
-      const path = `${authedUser.id}/avatar.${ext}`;
-
-      const upload = await supabase.storage.from(bucket).upload(path, avatarFile, {
-        upsert: true,
-        contentType: avatarFile.type || "image/jpeg",
-        cacheControl: "3600",
-      });
-
-      if (upload.error) {
-        redirect(
-          `/dashboard/profile?msg=${encodeURIComponent(
-            `Photo upload failed: ${upload.error.message}. (Check you have a Storage bucket named "avatars")`
-          )}`
-        );
-      }
-
-      const pub = supabase.storage.from(bucket).getPublicUrl(path);
-      avatar_url = pub.data.publicUrl ?? null;
-
-      if (!avatar_url) {
-        redirect(
-          `/dashboard/profile?msg=${encodeURIComponent(
-            'Photo uploaded but public URL could not be created. Check Storage bucket public access.'
-          )}`
-        );
-      }
+    if (!uniqueSlug) {
+      redirect(
+        `/dashboard/profile?msg=${encodeURIComponent(
+          "We could not generate a valid public profile link from your stage name. Please adjust your stage name and try again."
+        )}`
+      );
     }
+
+    let gallery_urls = [...existingGallery];
+
+    if (galleryFiles.length > 0) {
+      const bucket = "avatars";
+      const uploadedUrls: string[] = [];
+
+      for (let i = 0; i < galleryFiles.length; i += 1) {
+        const file = galleryFiles[i];
+
+        const ext =
+          file.type === "image/png"
+            ? "png"
+            : file.type === "image/webp"
+            ? "webp"
+            : "jpg";
+
+        const path = `${authedUser.id}/gallery/${Date.now()}-${i + 1}.${ext}`;
+
+        const upload = await supabase.storage.from(bucket).upload(path, file, {
+          upsert: false,
+          contentType: file.type || "image/jpeg",
+          cacheControl: "3600",
+        });
+
+        if (upload.error) {
+          redirect(
+            `/dashboard/profile?msg=${encodeURIComponent(
+              `Photo upload failed: ${upload.error.message}. Check that the Storage bucket "avatars" exists and is usable.`
+            )}`
+          );
+        }
+
+        const pub = supabase.storage.from(bucket).getPublicUrl(path);
+        const publicUrl = pub.data.publicUrl ?? null;
+
+        if (!publicUrl) {
+          redirect(
+            `/dashboard/profile?msg=${encodeURIComponent(
+              "A photo uploaded but its public URL could not be created. Check Storage public access."
+            )}`
+          );
+        }
+
+        uploadedUrls.push(publicUrl);
+      }
+
+      gallery_urls = uploadedUrls;
+    }
+
+    if (gallery_urls.length < MIN_REQUIRED_PHOTOS) {
+      redirect(
+        `/dashboard/profile?msg=${encodeURIComponent(
+          "You must have at least 3 photos saved on your profile to continue."
+        )}`
+      );
+    }
+
+    const avatar_url = gallery_urls[0] ?? null;
 
     const payload = {
       user_id: authedUser.id,
       stage_name,
-      slug: normalizedSlug,
+      slug: uniqueSlug,
       city,
       bio: bio.length ? bio : null,
       published,
-      avatar_url: avatar_url,
-      starting_price: starting_price, // ✅ NEW
+      avatar_url,
+      starting_price,
+      social_handle: parsedSocial.storage,
+      gallery_urls,
     };
 
     const { error } = await supabase.from("dj_profiles").upsert(payload, {
@@ -288,10 +564,10 @@ export default async function DashboardProfilePage(props: {
     }
 
     redirect(
-      `/dashboard/profile?msg=${encodeURIComponent(
+      `/dashboard?msg=${encodeURIComponent(
         published
           ? "Profile saved and published."
-          : "Profile saved. Turn on Publish when you’re ready."
+          : "Profile saved. Review your full DJ profile below."
       )}`
     );
   }
@@ -307,26 +583,25 @@ export default async function DashboardProfilePage(props: {
     "focus:border-white/20 focus:bg-white/[0.08] focus:ring-2 focus:ring-white/15";
 
   const startingPriceExisting =
-    (profile as any)?.starting_price != null &&
-    String((profile as any).starting_price).trim() !== ""
-      ? String((profile as any).starting_price)
+    profile?.starting_price != null && String(profile.starting_price).trim() !== ""
+      ? String(profile.starting_price)
       : "";
 
+  const socialInputExisting = formatSocialInputForEditing(profile?.social_handle);
+
   const isReady =
-    profile &&
-    isNonEmptyString((profile as any).stage_name) &&
-    isNonEmptyString((profile as any).slug) &&
-    isNonEmptyString((profile as any).city) &&
-    isNonEmptyString((profile as any).avatar_url) &&
-    ((profile as any)?.starting_price != null &&
-      String((profile as any).starting_price).trim() !== "");
+    Boolean(profile) &&
+    isNonEmptyString(profile?.stage_name) &&
+    isNonEmptyString(profile?.city) &&
+    isNonEmptyString(profile?.social_handle) &&
+    existingGalleryUrls.length >= MIN_REQUIRED_PHOTOS &&
+    profile?.starting_price != null &&
+    String(profile.starting_price).trim() !== "";
 
   const hasSlug =
-    profile && isNonEmptyString((profile as any)?.slug)
-      ? String((profile as any).slug).trim()
-      : null;
+    profile && isNonEmptyString(profile?.slug) ? String(profile.slug).trim() : null;
 
-  const isPublished = Boolean((profile as any)?.published);
+  const isPublished = Boolean(profile?.published);
 
   return (
     <section className="w-full">
@@ -335,7 +610,7 @@ export default async function DashboardProfilePage(props: {
           DASHBOARD
         </p>
         <h1 className="text-4xl font-extrabold tracking-tight text-white">
-          Profile
+          Profile setup
         </h1>
         <p className="text-sm text-white/65">
           Signed in as{" "}
@@ -353,7 +628,7 @@ export default async function DashboardProfilePage(props: {
         <div className="lg:col-span-2">
           <Card
             title={profile ? "Edit your DJ profile" : "Create your DJ profile"}
-            subtitle="Profile photo is required. Starting price is required to publish."
+            subtitle="Minimum 3 portrait-friendly photos required. More photos are recommended because they help DJs get more bookings. Social input now supports Instagram, Facebook, X, Snapchat, or Website."
             right={
               isReady ? (
                 <span className="inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-500/10 px-3 py-1 text-xs font-extrabold text-emerald-200">
@@ -370,61 +645,93 @@ export default async function DashboardProfilePage(props: {
           >
             <form action={saveProfileAction} className="space-y-4">
               <Field
-                label="Profile photo (required)"
-                hint="Clear headshot. JPG/PNG/WebP."
+                label="Photos (minimum 3 required)"
+                hint="Portrait photos recommended • JPG/PNG/WebP"
               >
-                <div className="flex items-center gap-4">
-                  <div className="h-16 w-16 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.06]">
-                    {existingAvatarUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={existingAvatarUrl}
-                        alt="DJ avatar"
-                        className="h-full w-full object-cover"
-                      />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center text-xs text-white/45">
-                        No photo
+                {existingGalleryUrls.length > 0 ? (
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                    {existingGalleryUrls.map((url, index) => (
+                      <div
+                        key={`${url}-${index}`}
+                        className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.06]"
+                      >
+                        <div className="aspect-[3/4] w-full">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={url}
+                            alt={`DJ photo ${index + 1}`}
+                            className="h-full w-full object-cover"
+                          />
+                        </div>
                       </div>
-                    )}
+                    ))}
                   </div>
+                ) : (
+                  <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.03] p-4 text-sm text-white/55">
+                    No photos uploaded yet.
+                  </div>
+                )}
 
-                  <input
-                    className={inputClass}
-                    type="file"
-                    name="avatar"
-                    accept="image/png,image/jpeg,image/webp"
-                    required={!existingAvatarUrl}
-                  />
-                </div>
+                <input
+                  className={inputClass}
+                  type="file"
+                  name="gallery"
+                  accept="image/png,image/jpeg,image/webp"
+                  multiple
+                />
+
                 <p className="mt-2 text-xs text-white/45">
-                  {existingAvatarUrl
-                    ? "You already have a photo. Upload a new one to replace it."
-                    : "You must upload a profile photo to continue."}
+                  You currently have{" "}
+                  <span className="font-semibold text-white/75">
+                    {existingPhotoCount}
+                  </span>{" "}
+                  saved photo{existingPhotoCount === 1 ? "" : "s"}. You need at least{" "}
+                  <span className="font-semibold text-white/75">
+                    {MIN_REQUIRED_PHOTOS}
+                  </span>{" "}
+                  total. On desktop, hold <span className="font-semibold text-white/75">Ctrl</span> or{" "}
+                  <span className="font-semibold text-white/75">Shift</span> to select multiple photos at once.
+                </p>
+
+                <p className="text-xs text-white/45">
+                  Selecting a new batch of photos will replace your current photo set, so upload your full preferred set together.
                 </p>
               </Field>
 
-              <Field label="Stage name" hint="Example: DJ Nova">
+              <Field
+                label="Stage name"
+                hint="Used to build your public profile URL automatically."
+              >
                 <input
                   className={inputClass}
                   name="stage_name"
                   placeholder="DJ Nova"
-                  defaultValue={String((profile as any)?.stage_name ?? "")}
-                  required
-                />
-              </Field>
-
-              <Field label="Slug" hint="Unique. Used in your public URL.">
-                <input
-                  className={inputClass}
-                  name="slug"
-                  placeholder="dj-nova"
-                  defaultValue={String((profile as any)?.slug ?? "")}
+                  defaultValue={String(profile?.stage_name ?? "")}
                   required
                 />
                 <p className="mt-2 text-xs text-white/45">
-                  Your public URL will look like:{" "}
-                  <span className="font-mono text-white/70">/dj/your-slug</span>
+                  Your public profile link will be generated automatically from your stage name.
+                </p>
+              </Field>
+
+              <Field
+                label="Instagram / Facebook / X / Snapchat / Website (required)"
+                hint="Use a clear format so the correct icon can be shown on the DJ profile."
+              >
+                <input
+                  className={inputClass}
+                  name="social_handle"
+                  placeholder="instagram:@djname or website:https://yourwebsite.com"
+                  defaultValue={socialInputExisting}
+                  required
+                />
+                <p className="mt-2 text-xs text-white/45">
+                  Accepted formats: <span className="font-semibold text-white/75">instagram:@djname</span>,{" "}
+                  <span className="font-semibold text-white/75">facebook:@djpage</span>,{" "}
+                  <span className="font-semibold text-white/75">x:@djname</span>,{" "}
+                  <span className="font-semibold text-white/75">snapchat:@djname</span>, or{" "}
+                  <span className="font-semibold text-white/75">website:https://yourwebsite.com</span>.
+                  A plain <span className="font-semibold text-white/75">@handle</span> is treated as Instagram.
                 </p>
               </Field>
 
@@ -433,12 +740,11 @@ export default async function DashboardProfilePage(props: {
                   className={inputClass}
                   name="city"
                   placeholder="Washington, DC"
-                  defaultValue={String((profile as any)?.city ?? "")}
+                  defaultValue={String(profile?.city ?? "")}
                   required
                 />
               </Field>
 
-              {/* ✅ NEW: Starting price */}
               <Field label="Starting price (USD)" hint='Shows as “From $450”'>
                 <div className="relative">
                   <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm font-extrabold text-white/55">
@@ -462,7 +768,7 @@ export default async function DashboardProfilePage(props: {
                   className={textareaClass}
                   name="bio"
                   placeholder="Tell clients what you play, your vibe, and what makes your sets unique..."
-                  defaultValue={String((profile as any)?.bio ?? "")}
+                  defaultValue={String(profile?.bio ?? "")}
                 />
               </Field>
 
@@ -476,9 +782,15 @@ export default async function DashboardProfilePage(props: {
                       When published, you’ll appear on the Browse DJs page.
                     </p>
 
-                    {!existingAvatarUrl ? (
+                    {existingPhotoCount < MIN_REQUIRED_PHOTOS ? (
                       <p className="mt-2 text-xs font-semibold text-amber-200/90">
-                        Publish is allowed — just upload a photo before saving.
+                        Minimum 3 photos are required before your onboarding can be considered complete.
+                      </p>
+                    ) : null}
+
+                    {!profile?.social_handle ? (
+                      <p className="mt-2 text-xs font-semibold text-amber-200/90">
+                        A valid social or website entry is required.
                       </p>
                     ) : null}
 
@@ -489,23 +801,16 @@ export default async function DashboardProfilePage(props: {
                     ) : null}
                   </div>
 
-                  {/* ✅ DO NOT disable the checkbox.
-                      Server-side rules will block publish if requirements aren't met. */}
                   <input
                     type="checkbox"
                     name="published"
-                    defaultChecked={Boolean((profile as any)?.published)}
+                    defaultChecked={Boolean(profile?.published)}
                     className="h-5 w-5 accent-fuchsia-500"
                   />
                 </label>
               </div>
 
-              <button
-                type="submit"
-                className="inline-flex h-11 w-full items-center justify-center rounded-2xl border border-white/10 bg-white/10 px-5 text-sm font-extrabold text-white shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur-md transition hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-white/20"
-              >
-                Save profile
-              </button>
+              <SaveProfileButton />
             </form>
           </Card>
         </div>
@@ -514,10 +819,10 @@ export default async function DashboardProfilePage(props: {
           <Card title="Quick actions" subtitle="Use these to verify your listing.">
             <div className="grid gap-3">
               <Link
-                href="/djs"
+                href="/dashboard"
                 className="inline-flex h-11 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] px-5 text-sm font-extrabold text-white/85 hover:bg-white/[0.06]"
               >
-                Browse DJs →
+                Back to dashboard →
               </Link>
 
               {hasSlug ? (
@@ -536,17 +841,17 @@ export default async function DashboardProfilePage(props: {
               )}
 
               <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-white/70">
-                Minimal setup required:
+                Minimum onboarding requirements:
                 <ul className="mt-2 space-y-1">
-                  <li>• Profile photo (required)</li>
+                  <li>• At least 3 photos</li>
                   <li>• Stage name</li>
-                  <li>• Slug</li>
+                  <li>• Instagram / Facebook / X / Snapchat / Website</li>
                   <li>• City</li>
                   <li>• Starting price (required to publish)</li>
                   <li>• Publish ON</li>
                 </ul>
                 <p className="mt-3 text-xs text-white/45">
-                  Bio is optional but recommended.
+                  More photos are recommended because they help DJs look stronger and can improve bookings.
                 </p>
               </div>
             </div>
