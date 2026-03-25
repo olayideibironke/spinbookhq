@@ -4,7 +4,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createBrowserClient } from "@supabase/ssr";
 
 type ViewState = "loading" | "ready" | "expired";
@@ -21,6 +21,7 @@ function buildLoginUrl(message: string) {
 
 export default function ResetPasswordPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   const supabase = useMemo(() => {
     return createBrowserClient(
@@ -38,66 +39,64 @@ export default function ResetPasswordPage() {
 
   useEffect(() => {
     let active = true;
-    let expiryTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const markExpired = (message: string) => {
+      if (!active) return;
+      setViewState("expired");
+      setNotice(message);
+      setNoticeStatus("error");
+    };
 
     const markReady = () => {
       if (!active) return;
-      if (expiryTimer) clearTimeout(expiryTimer);
       setViewState("ready");
       setNotice(null);
       setNoticeStatus(null);
     };
 
-    const { data: authListener } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        if (!active) return;
-
-        if (
-          (event === "PASSWORD_RECOVERY" || event === "SIGNED_IN") &&
-          session
-        ) {
-          markReady();
-        }
-      }
-    );
-
     const init = async () => {
-      const { data, error } = await supabase.auth.getSession();
+      const tokenHash = searchParams.get("token_hash");
+      const type = searchParams.get("type");
 
-      if (!active) return;
+      if (tokenHash && type === "recovery") {
+        const { error } = await supabase.auth.verifyOtp({
+          token_hash: tokenHash,
+          type: "recovery",
+        });
 
-      if (error) {
-        setViewState("expired");
-        setNotice(
-          "We couldn’t verify your reset session. Please request a new password reset link."
-        );
-        setNoticeStatus("error");
-        return;
-      }
+        if (error) {
+          markExpired(
+            "This reset link is invalid or has expired. Please request a new password reset link."
+          );
+          return;
+        }
 
-      if (data.session) {
+        window.history.replaceState({}, "", "/reset-password");
         markReady();
         return;
       }
 
-      expiryTimer = setTimeout(() => {
-        if (!active) return;
-        setViewState("expired");
-        setNotice(
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
+
+      if (sessionError || !session) {
+        markExpired(
           "This reset link is no longer active. Please request a new password reset link."
         );
-        setNoticeStatus("error");
-      }, 1500);
+        return;
+      }
+
+      markReady();
     };
 
     init();
 
     return () => {
       active = false;
-      if (expiryTimer) clearTimeout(expiryTimer);
-      authListener.subscription.unsubscribe();
     };
-  }, [supabase]);
+  }, [searchParams, supabase]);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
