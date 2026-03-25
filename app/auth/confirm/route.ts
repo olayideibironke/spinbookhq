@@ -16,12 +16,12 @@ function buildLoginRedirect(origin: string, message: string) {
 }
 
 function normalizeNext(next: string | null, type: EmailOtpType | null) {
-  if (next && next.startsWith("/")) {
-    return next;
-  }
-
   if (type === "recovery") {
     return "/reset-password";
+  }
+
+  if (next && next.startsWith("/")) {
+    return next;
   }
 
   return "/dashboard/profile";
@@ -38,8 +38,21 @@ export async function GET(request: NextRequest) {
 
   if (!token_hash || !type) {
     return NextResponse.redirect(
-      buildLoginRedirect(origin, "Missing confirmation details. Please request a new email.")
+      buildLoginRedirect(
+        origin,
+        "Missing confirmation details. Please request a new email."
+      )
     );
+  }
+
+  // Recovery is handled on the reset-password page itself so the browser client
+  // can establish the recovery session correctly.
+  if (type === "recovery") {
+    const redirectUrl = request.nextUrl.clone();
+    redirectUrl.pathname = "/reset-password";
+    redirectUrl.searchParams.set("token_hash", token_hash);
+    redirectUrl.searchParams.set("type", "recovery");
+    return NextResponse.redirect(redirectUrl);
   }
 
   const supabase = await createClient();
