@@ -23,6 +23,10 @@ type ProfileFormProps = {
   existingGalleryUrls: string[];
 };
 
+const MAX_FILE_SIZE_MB = 8;
+const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+const ACCEPTED_TYPES = ["image/jpeg", "image/png", "image/webp"];
+
 function Field({
   label,
   hint,
@@ -96,6 +100,38 @@ export default function ProfileForm({
     "placeholder:text-white/45 shadow-sm outline-none transition " +
     "focus:border-white/20 focus:bg-white/[0.08] focus:ring-2 focus:ring-white/15";
 
+  function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files ?? []);
+
+    if (files.length === 0) {
+      setSelectedFiles([]);
+      return;
+    }
+
+    for (const file of files) {
+      if (!ACCEPTED_TYPES.includes(file.type)) {
+        setMessage(
+          "Only JPG, PNG, and WebP images are allowed."
+        );
+        event.target.value = "";
+        setSelectedFiles([]);
+        return;
+      }
+
+      if (file.size > MAX_FILE_SIZE_BYTES) {
+        setMessage(
+          `Each photo must be ${MAX_FILE_SIZE_MB}MB or smaller. Please resize or compress the larger image and try again.`
+        );
+        event.target.value = "";
+        setSelectedFiles([]);
+        return;
+      }
+    }
+
+    setMessage(null);
+    setSelectedFiles(files);
+  }
+
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (pending) return;
@@ -131,15 +167,15 @@ export default function ProfileForm({
         for (let i = 0; i < selectedFiles.length; i += 1) {
           const file = selectedFiles[i];
 
-          if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+          if (!ACCEPTED_TYPES.includes(file.type)) {
             setMessage("Only JPG, PNG, and WebP images are allowed.");
             setPending(false);
             return;
           }
 
-          if (file.size > 15 * 1024 * 1024) {
+          if (file.size > MAX_FILE_SIZE_BYTES) {
             setMessage(
-              "Each photo must be 15MB or smaller. Please compress the image and try again."
+              `Each photo must be ${MAX_FILE_SIZE_MB}MB or smaller. Please resize or compress the larger image and try again.`
             );
             setPending(false);
             return;
@@ -227,7 +263,7 @@ export default function ProfileForm({
 
       <Field
         label="Photos (minimum 3 required)"
-        hint="Portrait photos recommended • JPG/PNG/WebP"
+        hint={`JPG / PNG / WebP • Max ${MAX_FILE_SIZE_MB}MB each • Portrait photos recommended`}
       >
         {showingUrls.length > 0 ? (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -258,19 +294,24 @@ export default function ProfileForm({
           type="file"
           accept="image/png,image/jpeg,image/webp"
           multiple
-          onChange={(event) => {
-            const files = Array.from(event.target.files ?? []);
-            setSelectedFiles(files);
-          }}
+          onChange={handleFileChange}
         />
 
         <p className="mt-2 text-xs text-white/45">
+          Upload at least <span className="font-semibold text-white/75">3</span>{" "}
+          photos. Each image must be{" "}
+          <span className="font-semibold text-white/75">
+            {MAX_FILE_SIZE_MB}MB or smaller
+          </span>
+          . Larger files will be rejected automatically.
+        </p>
+
+        <p className="text-xs text-white/45">
           You currently have{" "}
           <span className="font-semibold text-white/75">
             {effectivePhotoCount}
           </span>{" "}
-          selected/saved photo{effectivePhotoCount === 1 ? "" : "s"}. You need at
-          least <span className="font-semibold text-white/75">3</span> total.
+          selected/saved photo{effectivePhotoCount === 1 ? "" : "s"}.
         </p>
 
         <p className="text-xs text-white/45">
