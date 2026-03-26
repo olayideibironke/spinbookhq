@@ -10,6 +10,8 @@ type ParsedSocial = {
   storage: string;
 };
 
+const MIN_STARTING_PRICE = 450;
+
 function isNonEmptyString(v: unknown) {
   return typeof v === "string" && v.trim().length > 0;
 }
@@ -322,18 +324,34 @@ export async function POST(request: Request) {
     if (gallery_urls.length < 3) {
       return NextResponse.json(
         {
-          error:
-            "You must upload at least 3 photos to complete onboarding.",
+          error: "You must upload at least 3 photos to complete onboarding.",
         },
         { status: 400 }
       );
     }
 
-    if (published && !starting_price) {
+    if (!starting_price) {
       return NextResponse.json(
         {
-          error:
-            "Starting price is required before publishing. Example: 450 (shown as “From $450”).",
+          error: `Starting price is required. SpinBook HQ minimum starting price is $${MIN_STARTING_PRICE}.`,
+        },
+        { status: 400 }
+      );
+    }
+
+    if (starting_price < MIN_STARTING_PRICE) {
+      return NextResponse.json(
+        {
+          error: `Starting price cannot be lower than $${MIN_STARTING_PRICE}. Please update your rate to continue.`,
+        },
+        { status: 400 }
+      );
+    }
+
+    if (published && starting_price < MIN_STARTING_PRICE) {
+      return NextResponse.json(
+        {
+          error: `You must set a starting price of at least $${MIN_STARTING_PRICE} before publishing.`,
         },
         { status: 400 }
       );

@@ -32,6 +32,7 @@ type LocalPhoto = {
 const MAX_FILE_SIZE_MB = 8;
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 const ACCEPTED_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const MIN_STARTING_PRICE = 450;
 
 function Field({
   label,
@@ -179,6 +180,26 @@ export default function ProfileForm({
 
       if (effectivePhotoCount < 3) {
         setMessage("You must keep at least 3 photos on your profile.");
+        setPending(false);
+        return;
+      }
+
+      const numericStartingPrice = Number(
+        String(startingPrice).replace(/[^\d]/g, "")
+      );
+
+      if (!numericStartingPrice || !Number.isFinite(numericStartingPrice)) {
+        setMessage(
+          `Starting price is required. SpinBook HQ minimum starting price is $${MIN_STARTING_PRICE}.`
+        );
+        setPending(false);
+        return;
+      }
+
+      if (numericStartingPrice < MIN_STARTING_PRICE) {
+        setMessage(
+          `Starting price cannot be lower than $${MIN_STARTING_PRICE}. Please update your rate to continue.`
+        );
         setPending(false);
         return;
       }
@@ -404,7 +425,10 @@ export default function ProfileForm({
         />
       </Field>
 
-      <Field label="Starting price (USD)" hint='Shows as “From $450”'>
+      <Field
+        label="Starting price (USD)"
+        hint={`Minimum $${MIN_STARTING_PRICE} • Shows as “From $450”`}
+      >
         <div className="relative">
           <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm font-extrabold text-white/55">
             $
@@ -412,13 +436,18 @@ export default function ProfileForm({
           <input
             className={`${inputClass} pl-9`}
             inputMode="numeric"
+            min={MIN_STARTING_PRICE}
             value={startingPrice}
             onChange={(e) => setStartingPrice(e.target.value)}
             placeholder="450"
           />
         </div>
         <p className="mt-2 text-xs text-white/45">
-          Clients see this on your profile and in Browse DJs.
+          SpinBook HQ minimum starting price is{" "}
+          <span className="font-semibold text-white/75">
+            ${MIN_STARTING_PRICE}
+          </span>
+          . Clients see this on your profile and in Browse DJs.
         </p>
       </Field>
 
@@ -455,6 +484,14 @@ export default function ProfileForm({
             {!String(startingPrice).trim() ? (
               <p className="mt-2 text-xs font-semibold text-amber-200/90">
                 Starting price is required to publish.
+              </p>
+            ) : null}
+
+            {String(startingPrice).trim() &&
+            Number(String(startingPrice).replace(/[^\d]/g, "")) <
+              MIN_STARTING_PRICE ? (
+              <p className="mt-2 text-xs font-semibold text-amber-200/90">
+                Starting price must be at least ${MIN_STARTING_PRICE}.
               </p>
             ) : null}
           </div>
