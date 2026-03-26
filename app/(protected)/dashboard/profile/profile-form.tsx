@@ -23,6 +23,12 @@ type ProfileFormProps = {
   existingGalleryUrls: string[];
 };
 
+type LocalPhoto = {
+  id: string;
+  file: File;
+  previewUrl: string;
+};
+
 const MAX_FILE_SIZE_MB = 8;
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 const ACCEPTED_TYPES = ["image/jpeg", "image/png", "image/webp"];
@@ -76,19 +82,25 @@ export default function ProfileForm({
   );
   const [bio, setBio] = useState(initialProfile?.bio ?? "");
   const [published, setPublished] = useState(Boolean(initialProfile?.published));
-  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [existingUrls, setExistingUrls] = useState<string[]>(existingGalleryUrls);
+  const [localPhotos, setLocalPhotos] = useState<LocalPhoto[]>([]);
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
-  const previewUrls = useMemo(() => {
-    return selectedFiles.map((file) => URL.createObjectURL(file));
-  }, [selectedFiles]);
+  const allPhotos = [
+    ...existingUrls.map((url, index) => ({
+      id: `existing-${index}`,
+      source: "existing" as const,
+      url,
+    })),
+    ...localPhotos.map((photo) => ({
+      id: photo.id,
+      source: "local" as const,
+      url: photo.previewUrl,
+    })),
+  ];
 
-  const showingUrls =
-    selectedFiles.length > 0 ? previewUrls : existingGalleryUrls;
-
-  const effectivePhotoCount =
-    selectedFiles.length > 0 ? selectedFiles.length : existingGalleryUrls.length;
+  const effectivePhotoCount = allPhotos.length;
 
   const inputClass =
     "w-full rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-sm text-white " +
@@ -103,18 +115,12 @@ export default function ProfileForm({
   function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files ?? []);
 
-    if (files.length === 0) {
-      setSelectedFiles([]);
-      return;
-    }
+    if (files.length === 0) return;
 
     for (const file of files) {
       if (!ACCEPTED_TYPES.includes(file.type)) {
-        setMessage(
-          "Only JPG, PNG, and WebP images are allowed."
-        );
+        setMessage("Only JPG, PNG, and WebP images are allowed.");
         event.target.value = "";
-        setSelectedFiles([]);
         return;
       }
 
@@ -123,13 +129,32 @@ export default function ProfileForm({
           `Each photo must be ${MAX_FILE_SIZE_MB}MB or smaller. Please resize or compress the larger image and try again.`
         );
         event.target.value = "";
-        setSelectedFiles([]);
         return;
       }
     }
 
+    const nextLocalPhotos = files.map((file, index) => ({
+      id: `${Date.now()}-${index}-${Math.random().toString(36).slice(2)}`,
+      file,
+      previewUrl: URL.createObjectURL(file),
+    }));
+
     setMessage(null);
-    setSelectedFiles(files);
+    setLocalPhotos((prev) => [...prev, ...nextLocalPhotos]);
+    event.target.value = "";
+  }
+
+  function removePhoto(photoId: string, source: "existing" | "local") {
+    setMessage(null);
+
+    if (source === "existing") {
+      setExistingUrls((prev) =>
+        prev.filter((_, index) => `existing-${index}` !== photoId)
+      );
+      return;
+    }
+
+    setLocalPhotos((prev) => prev.filter((photo) => photo.id !== photoId));
   }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -153,19 +178,19 @@ export default function ProfileForm({
       }
 
       if (effectivePhotoCount < 3) {
-        setMessage("You must upload at least 3 photos to complete onboarding.");
+        setMessage("You must keep at least 3 photos on your profile.");
         setPending(false);
         return;
       }
 
-      let galleryUrls = [...existingGalleryUrls];
+      let galleryUrls = [...existingUrls];
 
-      if (selectedFiles.length > 0) {
+      if (localPhotos.length > 0) {
         const uploadedUrls: string[] = [];
         const bucket = "avatars";
 
-        for (let i = 0; i < selectedFiles.length; i += 1) {
-          const file = selectedFiles[i];
+        for (let i = 0; i < localPhotos.length; i += 1) {
+          const file = localPhotos[i].file;
 
           if (!ACCEPTED_TYPES.includes(file.type)) {
             setMessage("Only JPG, PNG, and WebP images are allowed.");
@@ -216,7 +241,7 @@ export default function ProfileForm({
           uploadedUrls.push(publicUrl);
         }
 
-        galleryUrls = uploadedUrls;
+        galleryUrls = [...existingUrls, ...uploadedUrls];
       }
 
       const response = await fetch("/api/dj/profile", {
@@ -265,20 +290,28 @@ export default function ProfileForm({
         label="Photos (minimum 3 required)"
         hint={`JPG / PNG / WebP • Max ${MAX_FILE_SIZE_MB}MB each • Portrait photos recommended`}
       >
-        {showingUrls.length > 0 ? (
+        {allPhotos.length > 0 ? (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            {showingUrls.map((url, index) => (
+            {allPhotos.map((photo, index) => (
               <div
-                key={`${url}-${index}`}
+                key={photo.id}
                 className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.06]"
               >
-                <div className="aspect-[3/4] w-full">
+                <div className="relative aspect-[3/4] w-full">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src={url}
+                    src={photo.url}
                     alt={`DJ photo ${index + 1}`}
                     className="h-full w-full object-cover"
                   />
+
+                  <button
+                    type="button"
+                    onClick={() => removePhoto(photo.id, photo.source)}
+                    className="absolute right-2 top-2 inline-flex items-center justify-center rounded-full border border-white/15 bg-black/60 px-3 py-1 text-xs font-bold text-white transition hover:bg-black/75"
+                  >
+                    Remove
+                  </button>
                 </div>
               </div>
             ))}
@@ -303,7 +336,7 @@ export default function ProfileForm({
           <span className="font-semibold text-white/75">
             {MAX_FILE_SIZE_MB}MB or smaller
           </span>
-          . Larger files will be rejected automatically.
+          .
         </p>
 
         <p className="text-xs text-white/45">
@@ -311,12 +344,11 @@ export default function ProfileForm({
           <span className="font-semibold text-white/75">
             {effectivePhotoCount}
           </span>{" "}
-          selected/saved photo{effectivePhotoCount === 1 ? "" : "s"}.
+          photo{effectivePhotoCount === 1 ? "" : "s"} ready.
         </p>
 
         <p className="text-xs text-white/45">
-          Selecting a new batch of photos will replace your current photo set, so
-          upload your full preferred set together.
+          You can remove any photo you do not like and add new ones before saving.
         </p>
       </Field>
 
