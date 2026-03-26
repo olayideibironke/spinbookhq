@@ -1,10 +1,12 @@
 "use client";
 
-import { useFormStatus } from "react-dom";
+type SaveProfileButtonProps = {
+  pending: boolean;
+};
 
-export default function SaveProfileButton() {
-  const { pending } = useFormStatus();
-
+export default function SaveProfileButton({
+  pending,
+}: SaveProfileButtonProps) {
   return (
     <button
       type="submit"
