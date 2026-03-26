@@ -1,4 +1,3 @@
-// web/app/(protected)/layout.tsx
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 
@@ -14,10 +13,8 @@ export default async function ProtectedLayout({
   } = await supabase.auth.getUser();
 
   if (!user) {
-    redirect("/login");
+    redirect("/login?dj=1&mode=signin");
   }
 
-  // Minimal auth gate only.
-  // Route-specific layouts (e.g., /dashboard) handle their own UI chrome.
   return <>{children}</>;
 }
