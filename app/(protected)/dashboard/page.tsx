@@ -14,12 +14,21 @@ type ParsedSocial = {
   storage: string;
 };
 
+const MIN_BIO_WORDS = 60;
+
 function isNonEmptyString(v: unknown) {
   return typeof v === "string" && v.trim().length > 0;
 }
 
 function safeTrim(v: unknown) {
   return typeof v === "string" ? v.trim() : "";
+}
+
+function countWords(value: string | null | undefined) {
+  return String(value ?? "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean).length;
 }
 
 function getProfileGallery(profile: any) {
@@ -183,9 +192,9 @@ function parseSocialValue(value: unknown): ParsedSocial | null {
       }
 
       if (host.includes("snapchat.com")) {
-        const segments = url.pathname.split("/").filter(Boolean);
+        const parts = url.pathname.split("/").filter(Boolean);
         const snapTarget =
-          segments[0] === "add" && segments[1] ? segments[1] : segments[0] ?? "";
+          parts[0] === "add" && parts[1] ? parts[1] : parts[0] ?? "";
         const label = cleanHandle(snapTarget);
         if (!label) return null;
 
@@ -291,6 +300,7 @@ export default async function DashboardPage(props: {
   const p = profile as any;
   const gallery = getProfileGallery(p);
   const social = parseSocialValue(p.social_handle);
+  const bioWordCount = countWords(p.bio);
 
   const checklist = [
     { label: "At least 3 photos", ok: gallery.length >= 3 },
@@ -298,8 +308,15 @@ export default async function DashboardPage(props: {
     { label: "Instagram / Facebook / X / Snapchat / Website", ok: isNonEmptyString(p.social_handle) },
     { label: "City", ok: isNonEmptyString(p.city) },
     {
-      label: "Starting price",
-      ok: p.starting_price != null && String(p.starting_price).trim() !== "",
+      label: "Starting price of at least $450",
+      ok:
+        p.starting_price != null &&
+        String(p.starting_price).trim() !== "" &&
+        Number(p.starting_price) >= 450,
+    },
+    {
+      label: `Bio (${MIN_BIO_WORDS}+ words)`,
+      ok: bioWordCount >= MIN_BIO_WORDS,
     },
     { label: "Published", ok: Boolean(p.published) },
   ];
@@ -314,6 +331,8 @@ export default async function DashboardPage(props: {
     isNonEmptyString(p.city) &&
     p.starting_price != null &&
     String(p.starting_price).trim() !== "" &&
+    Number(p.starting_price) >= 450 &&
+    bioWordCount >= MIN_BIO_WORDS &&
     Boolean(p.published);
 
   const newCountSafe =
@@ -491,7 +510,10 @@ export default async function DashboardPage(props: {
                 <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-white/75">
                   {isNonEmptyString(p.bio)
                     ? p.bio
-                    : "No bio added yet. Add a short bio to make your DJ profile feel stronger and more credible."}
+                    : "No bio added yet. Add a full bio to meet SpinBook HQ profile standards."}
+                </p>
+                <p className="mt-3 text-xs text-white/50">
+                  Current bio word count: {bioWordCount}
                 </p>
               </div>
             </div>
@@ -564,7 +586,7 @@ export default async function DashboardPage(props: {
             </ul>
 
             <p className="mt-4 text-sm text-white/65">
-              More photos and a polished bio usually make the profile feel stronger to clients.
+              Bio, pricing, and photo quality all matter. Incomplete or low-standard profiles should not be treated as launch-ready.
             </p>
           </Card>
         </div>

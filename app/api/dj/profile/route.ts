@@ -11,9 +11,17 @@ type ParsedSocial = {
 };
 
 const MIN_STARTING_PRICE = 450;
+const MIN_BIO_WORDS = 60;
 
 function isNonEmptyString(v: unknown) {
   return typeof v === "string" && v.trim().length > 0;
+}
+
+function countWords(value: string) {
+  return value
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean).length;
 }
 
 function toPositiveIntOrNull(v: string | number | null | undefined) {
@@ -295,7 +303,8 @@ export async function POST(request: Request) {
 
     const stage_name = String(body.stage_name ?? "").trim();
     const city = String(body.city ?? "").trim();
-    const bio = String(body.bio ?? "").trim().slice(0, 600);
+    const bio = String(body.bio ?? "").trim().slice(0, 2000);
+    const bioWordCount = countWords(bio);
     const social_handle_input = String(body.social_handle ?? "").trim();
     const published = Boolean(body.published);
     const starting_price = toPositiveIntOrNull(body.starting_price);
@@ -330,6 +339,15 @@ export async function POST(request: Request) {
       );
     }
 
+    if (!bio || bioWordCount < MIN_BIO_WORDS) {
+      return NextResponse.json(
+        {
+          error: `Bio is required and must be at least ${MIN_BIO_WORDS} words. Please describe your style, experience, event types, and what clients can expect when booking you.`,
+        },
+        { status: 400 }
+      );
+    }
+
     if (!starting_price) {
       return NextResponse.json(
         {
@@ -343,15 +361,6 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error: `Starting price cannot be lower than $${MIN_STARTING_PRICE}. Please update your rate to continue.`,
-        },
-        { status: 400 }
-      );
-    }
-
-    if (published && starting_price < MIN_STARTING_PRICE) {
-      return NextResponse.json(
-        {
-          error: `You must set a starting price of at least $${MIN_STARTING_PRICE} before publishing.`,
         },
         { status: 400 }
       );
@@ -387,7 +396,7 @@ export async function POST(request: Request) {
       stage_name,
       slug: uniqueSlug,
       city,
-      bio: bio.length ? bio : null,
+      bio,
       published,
       avatar_url,
       starting_price,

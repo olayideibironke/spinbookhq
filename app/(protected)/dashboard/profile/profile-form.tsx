@@ -33,6 +33,7 @@ const MAX_FILE_SIZE_MB = 8;
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 const ACCEPTED_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const MIN_STARTING_PRICE = 450;
+const MIN_BIO_WORDS = 60;
 
 function Field({
   label,
@@ -56,6 +57,13 @@ function Field({
 
 function isNonEmptyString(v: unknown) {
   return typeof v === "string" && v.trim().length > 0;
+}
+
+function countWords(value: string) {
+  return value
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean).length;
 }
 
 export default function ProfileForm({
@@ -88,6 +96,8 @@ export default function ProfileForm({
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
+  const bioWordCount = countWords(bio);
+
   const allPhotos = [
     ...existingUrls.map((url, index) => ({
       id: `existing-${index}`,
@@ -109,7 +119,7 @@ export default function ProfileForm({
     "focus:border-white/20 focus:bg-white/[0.08] focus:ring-2 focus:ring-white/15";
 
   const textareaClass =
-    "w-full min-h-[120px] resize-y rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-sm text-white " +
+    "w-full min-h-[180px] resize-y rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-sm leading-7 text-white " +
     "placeholder:text-white/45 shadow-sm outline-none transition " +
     "focus:border-white/20 focus:bg-white/[0.08] focus:ring-2 focus:ring-white/15";
 
@@ -180,6 +190,14 @@ export default function ProfileForm({
 
       if (effectivePhotoCount < 3) {
         setMessage("You must keep at least 3 photos on your profile.");
+        setPending(false);
+        return;
+      }
+
+      if (!bio.trim() || bioWordCount < MIN_BIO_WORDS) {
+        setMessage(
+          `Bio is required and must be at least ${MIN_BIO_WORDS} words. Please describe your style, experience, event types, and what clients can expect when booking you.`
+        );
         setPending(false);
         return;
       }
@@ -427,7 +445,7 @@ export default function ProfileForm({
 
       <Field
         label="Starting price (USD)"
-        hint={`Minimum $${MIN_STARTING_PRICE} • Shows as “From $450”`}
+        hint={`Required • Minimum $${MIN_STARTING_PRICE}`}
       >
         <div className="relative">
           <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm font-extrabold text-white/55">
@@ -451,14 +469,29 @@ export default function ProfileForm({
         </p>
       </Field>
 
-      <Field label="Bio" hint="Short intro. 600 chars max.">
+      <Field
+        label="Bio (required)"
+        hint={`Minimum ${MIN_BIO_WORDS} words`}
+      >
         <textarea
           className={textareaClass}
           value={bio}
           onChange={(e) => setBio(e.target.value)}
-          placeholder="Tell clients what you play, your vibe, and what makes your sets unique..."
-          maxLength={600}
+          placeholder="Tell clients who you are, what you play, the types of events you DJ, your energy and style, and what makes your sets worth booking."
+          maxLength={2000}
+          required
         />
+        <p className="mt-2 text-xs text-white/45">
+          Your bio must be at least{" "}
+          <span className="font-semibold text-white/75">
+            {MIN_BIO_WORDS} words
+          </span>
+          . One-line bios are not accepted.
+        </p>
+        <p className="text-xs text-white/45">
+          Current word count:{" "}
+          <span className="font-semibold text-white/75">{bioWordCount}</span>
+        </p>
       </Field>
 
       <div className="flex flex-col gap-3 rounded-3xl border border-white/10 bg-white/[0.03] p-5">
@@ -483,7 +516,7 @@ export default function ProfileForm({
 
             {!String(startingPrice).trim() ? (
               <p className="mt-2 text-xs font-semibold text-amber-200/90">
-                Starting price is required to publish.
+                Starting price is required.
               </p>
             ) : null}
 
@@ -492,6 +525,12 @@ export default function ProfileForm({
               MIN_STARTING_PRICE ? (
               <p className="mt-2 text-xs font-semibold text-amber-200/90">
                 Starting price must be at least ${MIN_STARTING_PRICE}.
+              </p>
+            ) : null}
+
+            {bioWordCount < MIN_BIO_WORDS ? (
+              <p className="mt-2 text-xs font-semibold text-amber-200/90">
+                Bio must be at least {MIN_BIO_WORDS} words.
               </p>
             ) : null}
           </div>

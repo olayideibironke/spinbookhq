@@ -20,8 +20,17 @@ type DjProfileRow = {
   social_handle: string | null;
 };
 
+const MIN_BIO_WORDS = 60;
+
 function isNonEmptyString(v: unknown) {
   return typeof v === "string" && v.trim().length > 0;
+}
+
+function countWords(value: string | null | undefined) {
+  return String(value ?? "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean).length;
 }
 
 function getProfileGallery(profile: Partial<DjProfileRow> | null | undefined) {
@@ -90,6 +99,7 @@ export default async function DashboardProfilePage(props: {
     .maybeSingle<DjProfileRow>();
 
   const existingGalleryUrls = getProfileGallery(profile);
+  const bioWordCount = countWords(profile?.bio);
 
   const isReady =
     Boolean(profile) &&
@@ -98,7 +108,8 @@ export default async function DashboardProfilePage(props: {
     isNonEmptyString(profile?.social_handle) &&
     existingGalleryUrls.length >= 3 &&
     profile?.starting_price != null &&
-    String(profile.starting_price).trim() !== "";
+    String(profile.starting_price).trim() !== "" &&
+    bioWordCount >= MIN_BIO_WORDS;
 
   const hasSlug =
     profile && isNonEmptyString(profile?.slug) ? String(profile.slug).trim() : null;
@@ -130,7 +141,7 @@ export default async function DashboardProfilePage(props: {
         <div className="lg:col-span-2">
           <Card
             title={profile ? "Edit your DJ profile" : "Create your DJ profile"}
-            subtitle="Minimum 3 portrait-friendly photos required. More photos are recommended because they help DJs get more bookings. Social input supports Instagram, Facebook, X, Snapchat, or Website."
+            subtitle="Minimum 3 photos required. Starting price is required and must be at least $450. Bio is required and must be at least 60 words."
             right={
               isReady ? (
                 <span className="inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-500/10 px-3 py-1 text-xs font-extrabold text-emerald-200">
@@ -184,11 +195,12 @@ export default async function DashboardProfilePage(props: {
                   <li>• Stage name</li>
                   <li>• Instagram / Facebook / X / Snapchat / Website</li>
                   <li>• City</li>
-                  <li>• Starting price (required to publish)</li>
+                  <li>• Starting price of at least $450</li>
+                  <li>• Bio of at least 60 words</li>
                   <li>• Publish ON</li>
                 </ul>
                 <p className="mt-3 text-xs text-white/45">
-                  More photos are recommended because they help DJs look stronger and can improve bookings.
+                  Incomplete bios and below-standard pricing are not accepted for profile completion.
                 </p>
               </div>
             </div>
