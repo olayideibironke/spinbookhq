@@ -366,6 +366,16 @@ export async function POST(request: Request) {
       );
     }
 
+    if (!published) {
+      return NextResponse.json(
+        {
+          error:
+            "You must check Publish profile before saving. Profiles cannot remain in draft during DJ onboarding.",
+        },
+        { status: 400 }
+      );
+    }
+
     const { data: currentProfile } = await supabase
       .from("dj_profiles")
       .select("slug")
@@ -397,7 +407,7 @@ export async function POST(request: Request) {
       slug: uniqueSlug,
       city,
       bio,
-      published,
+      published: true,
       avatar_url,
       starting_price,
       social_handle: parsedSocial.storage,
@@ -418,9 +428,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       ok: true,
       redirectTo: `/dashboard?msg=${encodeURIComponent(
-        published
-          ? "Profile saved and published."
-          : "Profile saved. Review your full DJ profile below."
+        "Profile saved and published."
       )}`,
     });
   } catch (error) {
