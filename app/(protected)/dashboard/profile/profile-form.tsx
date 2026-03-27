@@ -55,15 +55,15 @@ function Field({
   );
 }
 
-function isNonEmptyString(v: unknown) {
-  return typeof v === "string" && v.trim().length > 0;
-}
-
 function countWords(value: string) {
   return value
     .trim()
     .split(/\s+/)
     .filter(Boolean).length;
+}
+
+function RequiredRule({ children }: { children: React.ReactNode }) {
+  return <p className="mt-2 text-xs font-semibold text-red-300">{children}</p>;
 }
 
 export default function ProfileForm({
@@ -222,6 +222,14 @@ export default function ProfileForm({
         return;
       }
 
+      if (!published) {
+        setMessage(
+          "You must check Publish profile before saving. Profiles cannot remain in draft during DJ onboarding."
+        );
+        setPending(false);
+        return;
+      }
+
       let galleryUrls = [...existingUrls];
 
       if (localPhotos.length > 0) {
@@ -337,7 +345,6 @@ export default function ProfileForm({
                 className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.06]"
               >
                 <div className="relative aspect-[3/4] w-full">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={photo.url}
                     alt={`DJ photo ${index + 1}`}
@@ -469,10 +476,7 @@ export default function ProfileForm({
         </p>
       </Field>
 
-      <Field
-        label="Bio (required)"
-        hint={`Minimum ${MIN_BIO_WORDS} words`}
-      >
+      <Field label="Bio (required)" hint={`Minimum ${MIN_BIO_WORDS} words`}>
         <textarea
           className={textareaClass}
           value={bio}
@@ -494,44 +498,51 @@ export default function ProfileForm({
         </p>
       </Field>
 
-      <div className="flex flex-col gap-3 rounded-3xl border border-white/10 bg-white/[0.03] p-5">
+      <div className="rounded-3xl border border-red-400/25 bg-red-500/10 p-5">
         <label className="flex items-center justify-between gap-3">
           <div>
-            <p className="text-sm font-extrabold text-white">Publish profile</p>
-            <p className="mt-1 text-sm text-white/65">
-              When published, you’ll appear on the Browse DJs page.
+            <p className="text-sm font-extrabold text-white">
+              Publish profile (required)
+            </p>
+            <p className="mt-1 text-sm text-white/80">
+              You must check this box before saving. Profiles cannot remain in
+              draft during DJ onboarding.
             </p>
 
             {effectivePhotoCount < 3 ? (
-              <p className="mt-2 text-xs font-semibold text-amber-200/90">
-                Minimum 3 photos are required before your onboarding can be considered complete.
-              </p>
+              <RequiredRule>
+                Minimum 3 photos are required before you can continue.
+              </RequiredRule>
             ) : null}
 
-            {!isNonEmptyString(socialHandle) ? (
-              <p className="mt-2 text-xs font-semibold text-amber-200/90">
+            {!socialHandle.trim() ? (
+              <RequiredRule>
                 A valid social or website entry is required.
-              </p>
+              </RequiredRule>
             ) : null}
 
             {!String(startingPrice).trim() ? (
-              <p className="mt-2 text-xs font-semibold text-amber-200/90">
-                Starting price is required.
-              </p>
+              <RequiredRule>Starting price is required.</RequiredRule>
             ) : null}
 
             {String(startingPrice).trim() &&
             Number(String(startingPrice).replace(/[^\d]/g, "")) <
               MIN_STARTING_PRICE ? (
-              <p className="mt-2 text-xs font-semibold text-amber-200/90">
+              <RequiredRule>
                 Starting price must be at least ${MIN_STARTING_PRICE}.
-              </p>
+              </RequiredRule>
             ) : null}
 
             {bioWordCount < MIN_BIO_WORDS ? (
-              <p className="mt-2 text-xs font-semibold text-amber-200/90">
+              <RequiredRule>
                 Bio must be at least {MIN_BIO_WORDS} words.
-              </p>
+              </RequiredRule>
+            ) : null}
+
+            {!published ? (
+              <RequiredRule>
+                Publish profile must be checked before you can save.
+              </RequiredRule>
             ) : null}
           </div>
 
@@ -539,7 +550,8 @@ export default function ProfileForm({
             type="checkbox"
             checked={published}
             onChange={(e) => setPublished(e.target.checked)}
-            className="h-5 w-5 accent-fuchsia-500"
+            className="mt-1 h-5 w-5 accent-red-500"
+            required
           />
         </label>
       </div>
