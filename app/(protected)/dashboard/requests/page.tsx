@@ -23,23 +23,18 @@ type BookingRequest = {
   event_location: string;
   message: string | null;
   status: BookingStatus;
-
   quoted_total: number | null;
   quoted_at: string | null;
   platform_fee_total: number | null;
   platform_fee_paid: number | null;
   fee_status: string | null;
-
   checkout_url: string | null;
   stripe_checkout_session_id: string | null;
   deposit_paid: boolean;
   deposit_paid_at: string | null;
-
   public_token?: string | null;
-
-  // Email markers
-  accept_email_sent_at?: string | null; // ✅ Email #3 (Accepted + deposit required + checkout link)
-  decline_email_sent_at?: string | null; // ✅ Email #2 (Declined)
+  accept_email_sent_at?: string | null;
+  decline_email_sent_at?: string | null;
 };
 
 function isValidStatus(v: unknown): v is BookingStatus {
@@ -140,6 +135,15 @@ function generatePublicToken() {
   return crypto.randomBytes(32).toString("hex");
 }
 
+function requestsUrl(params: { status?: string; msg?: string; tone?: string }) {
+  const qs = new URLSearchParams();
+  if (params.status) qs.set("status", params.status);
+  if (params.msg) qs.set("msg", params.msg);
+  if (params.tone) qs.set("tone", params.tone);
+  const query = qs.toString();
+  return query ? `/dashboard/requests?${query}` : "/dashboard/requests";
+}
+
 async function sendEmailDeclined(args: {
   to: string;
   requesterName: string;
@@ -148,8 +152,6 @@ async function sendEmailDeclined(args: {
   publicToken: string;
 }): Promise<{ ok: boolean; error?: string }> {
   const apiKey = process.env.RESEND_API_KEY;
-
-  // ✅ Use verified-domain sender by default
   const from = String(process.env.RESEND_FROM_EMAIL ?? DEFAULT_FROM).trim();
 
   if (!apiKey) {
@@ -167,12 +169,10 @@ async function sendEmailDeclined(args: {
   const html = `
   <div style="font-family:ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; line-height:1.5; color:#0b0b0f;">
     <h2 style="margin:0 0 12px 0;">Update on your DJ request</h2>
-
     <p style="margin:0 0 12px 0;">
       Hi ${escapeHtml(args.requesterName || "there")},<br/>
       Unfortunately, <strong>${escapeHtml(args.djName)}</strong> declined your booking request.
     </p>
-
     <div style="border:1px solid #e6e6ef; border-radius:14px; padding:14px; background:#fafafe; margin:14px 0;">
       <div><strong>Booking reference:</strong> ${escapeHtml(args.bookingId)}</div>
       <div style="margin-top:10px;">
@@ -180,12 +180,10 @@ async function sendEmailDeclined(args: {
         <a href="${escapeAttr(statusUrl)}">${escapeHtml(statusUrl)}</a>
       </div>
     </div>
-
     <p style="margin:0 0 12px 0;">
       Want a replacement fast? Browse premium DJs here:<br/>
       <a href="${escapeAttr(browseUrl)}">${escapeHtml(browseUrl)}</a>
     </p>
-
     <hr style="border:none; border-top:1px solid #e6e6ef; margin:16px 0;" />
     <p style="margin:0; font-size:12px; color:#6b7280;">
       SpinBook HQ • Secure bookings for premium DJs
@@ -235,8 +233,6 @@ async function sendEmailAcceptedDepositRequired(args: {
   checkoutUrl: string;
 }): Promise<{ ok: boolean; error?: string }> {
   const apiKey = process.env.RESEND_API_KEY;
-
-  // ✅ Use verified-domain sender by default
   const from = String(process.env.RESEND_FROM_EMAIL ?? DEFAULT_FROM).trim();
 
   if (!apiKey) {
@@ -250,13 +246,11 @@ async function sendEmailAcceptedDepositRequired(args: {
 
   const origin = buildOrigin();
   const statusUrl = `${origin}/r/${encodeURIComponent(args.publicToken)}`;
-
   const subject = `DJ accepted — deposit required to confirm your booking`;
 
   const html = `
   <div style="font-family:ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; line-height:1.5; color:#0b0b0f;">
     <h2 style="margin:0 0 12px 0;">Your request was accepted ✅</h2>
-
     <p style="margin:0 0 12px 0;">
       Hi ${escapeHtml(args.requesterName || "there")},<br/>
       <strong>${escapeHtml(args.djName)}</strong> accepted your booking request.
@@ -264,7 +258,6 @@ async function sendEmailAcceptedDepositRequired(args: {
         200
       )}</strong> deposit.
     </p>
-
     <div style="border:1px solid #e6e6ef; border-radius:14px; padding:14px; background:#fafafe; margin:14px 0;">
       <div><strong>Booking reference:</strong> ${escapeHtml(args.bookingId)}</div>
       <div><strong>Agreed total price:</strong> ${formatUsd(
@@ -272,7 +265,6 @@ async function sendEmailAcceptedDepositRequired(args: {
       )}</div>
       <div><strong>Event date:</strong> ${escapeHtml(args.eventDate)}</div>
       <div><strong>Location:</strong> ${escapeHtml(args.eventLocation)}</div>
-
       <div style="margin-top:10px;">
         <strong>Deposit:</strong> ${formatUsd(200)} (non-refundable)
       </div>
@@ -281,19 +273,16 @@ async function sendEmailAcceptedDepositRequired(args: {
         the deposit is forfeited and the DJ may cancel.
       </div>
     </div>
-
     <p style="margin:0 0 12px 0;">
       <strong>Pay deposit now:</strong><br/>
       <a href="${escapeAttr(args.checkoutUrl)}">${escapeHtml(
         args.checkoutUrl
       )}</a>
     </p>
-
     <p style="margin:0 0 12px 0;">
       Track your booking status (no account required):<br/>
       <a href="${escapeAttr(statusUrl)}">${escapeHtml(statusUrl)}</a>
     </p>
-
     <hr style="border:none; border-top:1px solid #e6e6ef; margin:16px 0;" />
     <p style="margin:0; font-size:12px; color:#6b7280;">
       SpinBook HQ • Secure bookings for premium DJs
@@ -311,7 +300,7 @@ async function sendEmailAcceptedDepositRequired(args: {
       body: JSON.stringify({
         from,
         to: args.to,
-        bcc: [COMPANY_BCC], // ✅ compulsory company visibility
+        bcc: [COMPANY_BCC],
         subject,
         html,
       }),
@@ -334,10 +323,12 @@ async function sendEmailAcceptedDepositRequired(args: {
 export default async function DashboardRequestsPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ status?: string }>;
+  searchParams?: Promise<{ status?: string; msg?: string; tone?: string }>;
 }) {
   const sp = (await searchParams) ?? {};
   const statusParam = (sp.status ?? "").trim().toLowerCase();
+  const msg = String(sp.msg ?? "").trim();
+  const tone = String(sp.tone ?? "").trim();
 
   const activeStatus: FilterKey = isValidStatus(statusParam)
     ? statusParam
@@ -360,10 +351,27 @@ export default async function DashboardRequestsPage({
     const requestId = String(formData.get("requestId") ?? "").trim();
     const quotedRaw = String(formData.get("quoted_total") ?? "");
 
-    if (!requestId) return;
+    if (!requestId) {
+      redirect(
+        requestsUrl({
+          status: "new",
+          tone: "error",
+          msg: "Missing request ID. Please refresh and try again.",
+        })
+      );
+    }
 
     const quoted_total = toPositiveIntOrNull(quotedRaw);
-    if (!quoted_total || quoted_total < 450) return;
+
+    if (!quoted_total || quoted_total < 450) {
+      redirect(
+        requestsUrl({
+          status: "new",
+          tone: "error",
+          msg: "Final price must be at least $450.",
+        })
+      );
+    }
 
     const platform_fee_total = calcPlatformFeeTotal(quoted_total);
     const platform_fee_paid = 80;
@@ -377,7 +385,7 @@ export default async function DashboardRequestsPage({
 
     if (authedUserError || !authedUser) redirect("/login");
 
-    await supabase
+    const { data: updatedRows, error: updateError } = await supabase
       .from("booking_requests")
       .update({
         status: "accepted",
@@ -389,11 +397,40 @@ export default async function DashboardRequestsPage({
       })
       .eq("id", requestId)
       .eq("dj_user_id", authedUser.id)
-      .eq("status", "new");
+      .eq("status", "new")
+      .select("id");
+
+    if (updateError) {
+      redirect(
+        requestsUrl({
+          status: "new",
+          tone: "error",
+          msg: `Accept failed: ${updateError.message}`,
+        })
+      );
+    }
+
+    if (!updatedRows || updatedRows.length === 0) {
+      redirect(
+        requestsUrl({
+          status: "new",
+          tone: "error",
+          msg: "Accept failed. This request may already be accepted, declined, closed, or owned by another DJ.",
+        })
+      );
+    }
 
     revalidatePath("/dashboard/requests");
     revalidatePath(`/dashboard/requests/${requestId}`);
     revalidatePath("/dashboard");
+
+    redirect(
+      requestsUrl({
+        status: "accepted",
+        tone: "success",
+        msg: "Request accepted and final quote saved.",
+      })
+    );
   }
 
   async function setStatus(formData: FormData) {
@@ -402,7 +439,14 @@ export default async function DashboardRequestsPage({
     const requestId = String(formData.get("requestId") ?? "").trim();
     const status = String(formData.get("status") ?? "").trim();
 
-    if (!requestId || !["declined", "closed"].includes(status)) return;
+    if (!requestId || !["declined", "closed"].includes(status)) {
+      redirect(
+        requestsUrl({
+          tone: "error",
+          msg: "Status update failed. Missing request ID or invalid status.",
+        })
+      );
+    }
 
     const supabase = await createClient();
     const {
@@ -412,7 +456,6 @@ export default async function DashboardRequestsPage({
 
     if (authedUserError || !authedUser) redirect("/login");
 
-    // Declined path includes Email #2
     if (status === "declined") {
       const { data: req, error: reqErr } = await supabase
         .from("booking_requests")
@@ -423,11 +466,21 @@ export default async function DashboardRequestsPage({
         .single();
 
       if (!reqErr && req && req.dj_user_id === authedUser.id) {
-        await supabase
+        const { error: declineUpdateError } = await supabase
           .from("booking_requests")
           .update({ status: "declined" })
           .eq("id", requestId)
           .eq("dj_user_id", authedUser.id);
+
+        if (declineUpdateError) {
+          redirect(
+            requestsUrl({
+              status: "new",
+              tone: "error",
+              msg: `Decline failed: ${declineUpdateError.message}`,
+            })
+          );
+        }
 
         let publicToken = String(req.public_token ?? "").trim();
         if (!publicToken) {
@@ -470,26 +523,66 @@ export default async function DashboardRequestsPage({
         revalidatePath("/dashboard/requests");
         revalidatePath(`/dashboard/requests/${requestId}`);
         revalidatePath("/dashboard");
-        return;
+
+        redirect(
+          requestsUrl({
+            status: "declined",
+            tone: "success",
+            msg: "Request declined.",
+          })
+        );
       }
+
+      redirect(
+        requestsUrl({
+          status: "new",
+          tone: "error",
+          msg: "Decline failed. Request not found for this DJ account.",
+        })
+      );
     }
 
-    await supabase
+    const { error: statusError } = await supabase
       .from("booking_requests")
       .update({ status })
       .eq("id", requestId)
       .eq("dj_user_id", authedUser.id);
 
+    if (statusError) {
+      redirect(
+        requestsUrl({
+          tone: "error",
+          msg: `Status update failed: ${statusError.message}`,
+        })
+      );
+    }
+
     revalidatePath("/dashboard/requests");
     revalidatePath(`/dashboard/requests/${requestId}`);
     revalidatePath("/dashboard");
+
+    redirect(
+      requestsUrl({
+        status,
+        tone: "success",
+        msg: `Request marked as ${status}.`,
+      })
+    );
   }
 
   async function generateDepositLink(formData: FormData) {
     "use server";
 
     const requestId = String(formData.get("requestId") ?? "").trim();
-    if (!requestId) return;
+    if (!requestId) {
+      redirect(
+        requestsUrl({
+          status: "accepted",
+          tone: "error",
+          msg: "Missing request ID. Please refresh and try again.",
+        })
+      );
+    }
 
     const supabase = await createClient();
     const {
@@ -507,12 +600,55 @@ export default async function DashboardRequestsPage({
       .eq("id", requestId)
       .single();
 
-    if (reqErr || !req) return;
-    if (req.dj_user_id !== authedUser.id) return;
+    if (reqErr || !req) {
+      redirect(
+        requestsUrl({
+          status: "accepted",
+          tone: "error",
+          msg: "Deposit link failed. Request not found.",
+        })
+      );
+    }
 
-    if (req.status !== "accepted") return;
-    if (!req.quoted_total || Number(req.quoted_total) < 450) return;
-    if (req.deposit_paid) return;
+    if (req.dj_user_id !== authedUser.id) {
+      redirect(
+        requestsUrl({
+          status: "accepted",
+          tone: "error",
+          msg: "Deposit link failed. This request belongs to another DJ account.",
+        })
+      );
+    }
+
+    if (req.status !== "accepted") {
+      redirect(
+        requestsUrl({
+          status: "accepted",
+          tone: "error",
+          msg: "Deposit link failed. Accept the request first.",
+        })
+      );
+    }
+
+    if (!req.quoted_total || Number(req.quoted_total) < 450) {
+      redirect(
+        requestsUrl({
+          status: "accepted",
+          tone: "error",
+          msg: "Deposit link failed. Final quote must be at least $450.",
+        })
+      );
+    }
+
+    if (req.deposit_paid) {
+      redirect(
+        requestsUrl({
+          status: "accepted",
+          tone: "success",
+          msg: "Deposit is already paid.",
+        })
+      );
+    }
 
     const origin = buildOrigin();
 
@@ -521,11 +657,9 @@ export default async function DashboardRequestsPage({
       publicToken = generatePublicToken();
     }
 
-    // If checkout already exists, try to send Email #3 if it hasn't been sent yet (retry-safe)
     if (req.checkout_url) {
       const alreadySent = !!req.accept_email_sent_at;
 
-      // Always persist token so /r/[token] works
       await supabase
         .from("booking_requests")
         .update({ public_token: publicToken })
@@ -566,7 +700,14 @@ export default async function DashboardRequestsPage({
 
       revalidatePath("/dashboard/requests");
       revalidatePath(`/dashboard/requests/${requestId}`);
-      return;
+
+      redirect(
+        requestsUrl({
+          status: "accepted",
+          tone: "success",
+          msg: "Deposit link already exists and is ready.",
+        })
+      );
     }
 
     const { data: djProfile } = await supabase
@@ -629,16 +770,23 @@ export default async function DashboardRequestsPage({
     });
 
     const checkoutUrl = String(session.url ?? "").trim();
-    if (!checkoutUrl) return;
 
-    // Save session + token + fee fields (DO NOT mark email sent yet)
-    await supabase
+    if (!checkoutUrl) {
+      redirect(
+        requestsUrl({
+          status: "accepted",
+          tone: "error",
+          msg: "Stripe did not return a checkout link.",
+        })
+      );
+    }
+
+    const { error: saveCheckoutError } = await supabase
       .from("booking_requests")
       .update({
         checkout_url: checkoutUrl,
         stripe_checkout_session_id: session.id,
         public_token: publicToken,
-
         ...(platformFeeTotal != null ? { platform_fee_total: platformFeeTotal } : {}),
         platform_fee_paid: platformFeePaid,
         fee_status: feeStatus,
@@ -646,7 +794,16 @@ export default async function DashboardRequestsPage({
       .eq("id", requestId)
       .eq("dj_user_id", authedUser.id);
 
-    // Email #3 (only mark sent if success)
+    if (saveCheckoutError) {
+      redirect(
+        requestsUrl({
+          status: "accepted",
+          tone: "error",
+          msg: `Deposit link was created but could not be saved: ${saveCheckoutError.message}`,
+        })
+      );
+    }
+
     const sendRes = await sendEmailAcceptedDepositRequired({
       to: String(req.requester_email ?? "").trim(),
       requesterName: String(req.requester_name ?? "").trim(),
@@ -672,6 +829,16 @@ export default async function DashboardRequestsPage({
     revalidatePath("/dashboard/requests");
     revalidatePath(`/dashboard/requests/${requestId}`);
     revalidatePath("/dashboard");
+
+    redirect(
+      requestsUrl({
+        status: "accepted",
+        tone: sendRes.ok ? "success" : "error",
+        msg: sendRes.ok
+          ? "Deposit link generated and emailed to the client."
+          : "Deposit link generated, but the email did not send. Open the checkout link manually.",
+      })
+    );
   }
 
   const { data: djProfileForShare } = await supabase
@@ -754,6 +921,19 @@ export default async function DashboardRequestsPage({
             </span>
           </div>
         </div>
+
+        {msg ? (
+          <div
+            className={[
+              "mt-6 rounded-3xl border p-5 text-sm font-semibold",
+              tone === "error"
+                ? "border-red-400/20 bg-red-500/10 text-red-100"
+                : "border-emerald-400/20 bg-emerald-500/10 text-emerald-100",
+            ].join(" ")}
+          >
+            {msg}
+          </div>
+        ) : null}
 
         <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <Link
@@ -1040,7 +1220,7 @@ export default async function DashboardRequestsPage({
                     </>
                   ) : null}
 
-                  {(r.status === "accepted" || r.status === "declined") ? (
+                  {r.status === "accepted" || r.status === "declined" ? (
                     <form action={setStatus}>
                       <input type="hidden" name="requestId" value={r.id} />
                       <input type="hidden" name="status" value="closed" />

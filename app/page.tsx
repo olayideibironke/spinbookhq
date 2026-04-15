@@ -65,7 +65,6 @@ export default async function Home() {
   const INSTAGRAM_URL = "https://www.instagram.com/spinbookhq/";
   const supabase = await createClient();
 
-  // Featured DJs: keep this query resilient to schema variations.
   const { data: featuredDjsRaw } = await supabase
     .from("dj_profiles")
     .select(
@@ -79,11 +78,10 @@ export default async function Home() {
 
   return (
     <main className="min-h-screen bg-black text-white">
-      {/* TOP ANNOUNCEMENT BAR */}
       <section className="border-b border-white/10 bg-white/[0.03]">
         <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-3 px-6 py-3 text-center sm:flex-row sm:text-left">
           <p className="text-xs font-medium tracking-[0.14em] text-white/75 uppercase">
-            Founding DJ onboarding now in progress across select cities
+            Now accepting booking requests in select live DJ markets
           </p>
           <div className="flex flex-wrap items-center justify-center gap-3 sm:justify-end">
             <Link
@@ -93,18 +91,16 @@ export default async function Home() {
               Browse DJs
             </Link>
             <Link
-              href="/dj-waitlist"
+              href="/#how-it-works"
               className="text-xs font-semibold text-white/60 underline underline-offset-4 hover:text-white/85"
             >
-              DJ access status
+              How booking works
             </Link>
           </div>
         </div>
       </section>
 
-      {/* HERO */}
       <section className="relative overflow-hidden border-b border-white/10">
-        {/* hero background wash */}
         <div className="pointer-events-none absolute inset-0 z-0">
           <div className="absolute inset-0 bg-gradient-to-r from-purple-950/70 via-black to-fuchsia-950/50" />
           <div className="absolute -top-48 left-1/2 h-96 w-[70rem] -translate-x-1/2 rounded-full bg-purple-500/20 blur-3xl" />
@@ -116,17 +112,17 @@ export default async function Home() {
           <div className="grid gap-10 lg:grid-cols-2 lg:items-center">
             <div className="space-y-6">
               <p className="inline-flex items-center rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs text-white/80">
-                Premium DJ bookings • Deposits • Verified profiles
+                Premium DJ bookings • Verified profiles • Select launch cities
               </p>
 
               <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">
-                Book the perfect DJ for your event on{" "}
+                Hire a DJ for your next event on{" "}
                 <span className="text-white">{APP_NAME}</span>.
               </h1>
 
               <p className="max-w-xl text-base leading-relaxed text-white/75">
-                Browse DJs, request a quote, and secure your date with a deposit.
-                Simple, clean, and built for real events.
+                Browse live DJ profiles, compare starting prices, request availability,
+                and send your event details directly through SpinBook HQ.
               </p>
 
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -138,17 +134,17 @@ export default async function Home() {
                 </Link>
 
                 <Link
+                  href="/#featured-djs"
+                  className="inline-flex items-center justify-center rounded-full border border-white/20 bg-white/5 px-6 py-3 text-sm font-semibold text-white hover:bg-white/10"
+                >
+                  See featured DJs
+                </Link>
+
+                <Link
                   href="/#how-it-works"
                   className="inline-flex items-center justify-center rounded-full border border-white/20 bg-white/5 px-6 py-3 text-sm font-semibold text-white hover:bg-white/10"
                 >
                   How It Works
-                </Link>
-
-                <Link
-                  href="/dj-waitlist"
-                  className="inline-flex items-center justify-center rounded-full border border-white/20 bg-white/5 px-6 py-3 text-sm font-semibold text-white hover:bg-white/10"
-                >
-                  For DJs
                 </Link>
 
                 <Link
@@ -162,69 +158,69 @@ export default async function Home() {
               </div>
             </div>
 
-            {/* Hero visual */}
             <div className="relative">
               <div className="absolute -inset-6 rounded-3xl bg-gradient-to-b from-white/10 to-transparent blur-2xl" />
               <div className="relative rounded-3xl border border-white/10 bg-white/5 p-6">
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
                     <p className="text-sm font-semibold text-white/90">
-                      Featured marketplace
+                      Client booking flow
                     </p>
-                    <p className="text-xs text-white/60">Fast booking flow</p>
+                    <p className="text-xs text-white/60">Soft launch active</p>
                   </div>
 
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div className="rounded-2xl border border-white/10 bg-black/40 p-4">
                       <p className="text-xs text-white/60">Step 1</p>
-                      <p className="mt-1 text-sm font-semibold">Create request</p>
+                      <p className="mt-1 text-sm font-semibold">Browse DJs</p>
                       <p className="mt-2 text-sm text-white/70">
-                        Tell us the date, location, and vibe.
+                        View live profiles, city, vibe, and starting price.
                       </p>
                     </div>
 
                     <div className="rounded-2xl border border-white/10 bg-black/40 p-4">
                       <p className="text-xs text-white/60">Step 2</p>
-                      <p className="mt-1 text-sm font-semibold">DJ responds</p>
+                      <p className="mt-1 text-sm font-semibold">Request booking</p>
                       <p className="mt-2 text-sm text-white/70">
-                        Your DJ accepts or declines quickly.
+                        Send date, venue, event type, and contact details.
                       </p>
                     </div>
 
                     <div className="rounded-2xl border border-white/10 bg-black/40 p-4">
                       <p className="text-xs text-white/60">Step 3</p>
-                      <p className="mt-1 text-sm font-semibold">Pay deposit</p>
+                      <p className="mt-1 text-sm font-semibold">DJ reviews</p>
                       <p className="mt-2 text-sm text-white/70">
-                        Secure your date with a deposit checkout link.
+                        The DJ can review the request and respond.
                       </p>
                     </div>
 
                     <div className="rounded-2xl border border-white/10 bg-black/40 p-4">
                       <p className="text-xs text-white/60">Step 4</p>
-                      <p className="mt-1 text-sm font-semibold">Confirm details</p>
+                      <p className="mt-1 text-sm font-semibold">Secure event</p>
                       <p className="mt-2 text-sm text-white/70">
-                        Finalize timing, set list, and logistics.
+                        Confirm details and move toward deposit/payment.
                       </p>
                     </div>
                   </div>
 
                   <div className="rounded-2xl border border-white/10 bg-black/40 p-4">
-                    <p className="text-sm font-semibold">Built for real bookings</p>
+                    <p className="text-sm font-semibold">For real event requests</p>
                     <p className="mt-2 text-sm text-white/70">
-                      Deposits, notifications, and a clean experience for DJs and clients.
+                      SpinBook HQ is opening carefully in markets where live DJs are
+                      already available.
                     </p>
                   </div>
                 </div>
               </div>
             </div>
-            {/* end hero visual */}
           </div>
         </div>
       </section>
 
-      {/* FEATURED DJS (Section 3) */}
-      <section className="relative overflow-hidden bg-black sm:bg-gradient-to-r sm:from-purple-950/35 sm:via-black sm:to-fuchsia-950/25">
-        {/* Mobile premium wash (matches Hero look) */}
+      <section
+        id="featured-djs"
+        className="relative overflow-hidden bg-black sm:bg-gradient-to-r sm:from-purple-950/35 sm:via-black sm:to-fuchsia-950/25"
+      >
         <div className="pointer-events-none absolute inset-0 z-0 sm:hidden">
           <div className="absolute inset-0 bg-gradient-to-r from-purple-950/70 via-black to-fuchsia-950/50" />
           <div className="absolute -top-48 left-1/2 h-96 w-[70rem] -translate-x-1/2 rounded-full bg-purple-500/20 blur-3xl" />
@@ -232,9 +228,8 @@ export default async function Home() {
           <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/75" />
         </div>
 
-        {/* Desktop overlay stays as before */}
         <div className="pointer-events-none absolute inset-0 z-0 hidden sm:block">
-          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/75 sm:to-black/80" />
+          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/80" />
         </div>
 
         <div className="relative z-10 mx-auto max-w-6xl px-6 py-14">
@@ -242,7 +237,7 @@ export default async function Home() {
             <div>
               <h2 className="text-2xl font-semibold tracking-tight">Featured DJs</h2>
               <p className="mt-2 max-w-2xl text-sm text-white/70">
-                Verified profiles with clear starting prices and fast booking flow.
+                Start with live DJ profiles currently available for booking requests.
               </p>
             </div>
 
@@ -255,7 +250,7 @@ export default async function Home() {
           </div>
 
           <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {(featuredDjs?.length ? featuredDjs : []).map((dj) => {
+            {featuredDjs.map((dj) => {
               const name = pickDisplayName(dj);
               const from = pickFromPrice(dj);
               const href = pickHref(dj);
@@ -284,7 +279,7 @@ export default async function Home() {
                       {from ? formatFromPrice(from) : "View pricing"}
                     </p>
                     <span className="rounded-full border border-white/15 bg-black/40 px-3 py-1 text-xs text-white/80">
-                      View
+                      View profile
                     </span>
                   </div>
 
@@ -295,13 +290,13 @@ export default async function Home() {
               );
             })}
 
-            {!featuredDjs?.length ? (
+            {!featuredDjs.length ? (
               <div className="rounded-3xl border border-white/10 bg-white/5 p-6 text-white/70 sm:col-span-2 lg:col-span-3">
-                No featured DJs yet.{" "}
+                Live DJ profiles are being prepared.{" "}
                 <Link href="/djs" className="underline underline-offset-4">
-                  Browse all DJs
-                </Link>{" "}
-                to explore profiles.
+                  Browse DJs
+                </Link>
+                .
               </div>
             ) : null}
           </div>
@@ -317,13 +312,11 @@ export default async function Home() {
         </div>
       </section>
 
-      {/* HOW IT WORKS (Section 4) */}
       <section
         id="how-it-works"
         className="relative overflow-hidden scroll-mt-24 border-t border-white/10 bg-black sm:bg-gradient-to-r sm:from-purple-950/30 sm:via-black sm:to-fuchsia-950/20"
         aria-label="How it works"
       >
-        {/* Mobile premium wash (matches Hero look) */}
         <div className="pointer-events-none absolute inset-0 z-0 sm:hidden">
           <div className="absolute inset-0 bg-gradient-to-r from-purple-950/70 via-black to-fuchsia-950/50" />
           <div className="absolute -top-48 left-1/2 h-96 w-[70rem] -translate-x-1/2 rounded-full bg-purple-500/20 blur-3xl" />
@@ -331,17 +324,16 @@ export default async function Home() {
           <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/80" />
         </div>
 
-        {/* Desktop overlay stays as before */}
         <div className="pointer-events-none absolute inset-0 z-0 hidden sm:block">
-          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/80 sm:to-black/85" />
+          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/85" />
         </div>
 
         <div className="relative z-10 mx-auto max-w-6xl px-6 py-16">
           <div className="max-w-3xl">
             <h2 className="text-2xl font-semibold tracking-tight">How It Works</h2>
             <p className="mt-2 text-sm leading-relaxed text-white/70">
-              A clean booking flow designed for clients and DJs — request, accept, and
-              secure your date with a deposit.
+              A simple client flow: find a DJ, send your event request, and move
+              toward confirmation.
             </p>
           </div>
 
@@ -350,7 +342,7 @@ export default async function Home() {
               <p className="text-xs text-white/60">01</p>
               <p className="mt-2 text-base font-semibold">Browse DJs</p>
               <p className="mt-2 text-sm text-white/70">
-                Explore profiles, sound, vibe, and starting prices.
+                Explore live DJ profiles, city, pricing, and event fit.
               </p>
               <div className="mt-4">
                 <Link
@@ -364,44 +356,32 @@ export default async function Home() {
 
             <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
               <p className="text-xs text-white/60">02</p>
-              <p className="mt-2 text-base font-semibold">Create a request</p>
+              <p className="mt-2 text-base font-semibold">Open a profile</p>
               <p className="mt-2 text-sm text-white/70">
-                Share event date, location, and what you need.
+                Review the DJ’s details and click the booking request option.
               </p>
             </div>
 
             <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
               <p className="text-xs text-white/60">03</p>
-              <p className="mt-2 text-base font-semibold">DJ accepts or declines</p>
+              <p className="mt-2 text-base font-semibold">Submit event details</p>
               <p className="mt-2 text-sm text-white/70">
-                You get an email update when the DJ responds.
+                Share your date, location, event type, budget, and contact info.
               </p>
             </div>
 
             <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
               <p className="text-xs text-white/60">04</p>
-              <p className="mt-2 text-base font-semibold">Pay deposit</p>
+              <p className="mt-2 text-base font-semibold">Wait for response</p>
               <p className="mt-2 text-sm text-white/70">
-                If accepted, you receive a secure deposit checkout link to lock the date.
+                The DJ reviews your request before the event is confirmed.
               </p>
             </div>
-          </div>
-
-          <div className="mt-10 rounded-3xl border border-white/10 bg-white/5 p-6">
-            <p className="text-sm font-semibold">Pro tip</p>
-            <p className="mt-2 text-sm text-white/70">
-              If you click{" "}
-              <span className="font-semibold text-white">How It Works</span> in the
-              header, this section is guaranteed to exist in the DOM and the page can
-              scroll here reliably.
-            </p>
           </div>
         </div>
       </section>
 
-      {/* FOOTER CTA (Section 5) */}
       <section className="relative overflow-hidden border-t border-white/10 bg-black sm:bg-gradient-to-r sm:from-purple-950/25 sm:via-black sm:to-fuchsia-950/15">
-        {/* Mobile premium wash (matches Hero look) */}
         <div className="pointer-events-none absolute inset-0 z-0 sm:hidden">
           <div className="absolute inset-0 bg-gradient-to-r from-purple-950/70 via-black to-fuchsia-950/50" />
           <div className="absolute -top-48 left-1/2 h-96 w-[70rem] -translate-x-1/2 rounded-full bg-purple-500/20 blur-3xl" />
@@ -409,16 +389,17 @@ export default async function Home() {
           <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/85" />
         </div>
 
-        {/* Desktop overlay stays as before */}
         <div className="pointer-events-none absolute inset-0 z-0 hidden sm:block">
           <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/85" />
         </div>
 
         <div className="relative z-10 mx-auto max-w-6xl px-6 py-14">
           <div className="rounded-3xl border border-white/10 bg-white/5 p-8 sm:p-10">
-            <h3 className="text-xl font-semibold tracking-tight">Ready to book?</h3>
+            <h3 className="text-xl font-semibold tracking-tight">
+              Ready to find a DJ?
+            </h3>
             <p className="mt-2 text-sm text-white/70">
-              Browse top DJs and request availability in minutes.
+              Browse live profiles and request availability for your event.
             </p>
             <div className="mt-6 flex flex-col gap-3 sm:flex-row">
               <Link
@@ -431,7 +412,7 @@ export default async function Home() {
                 href="/contact"
                 className="inline-flex items-center justify-center rounded-full border border-white/15 bg-white/5 px-6 py-3 text-sm font-semibold text-white hover:bg-white/10"
               >
-                Contact
+                Contact SpinBook HQ
               </Link>
             </div>
           </div>
