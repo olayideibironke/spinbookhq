@@ -78,6 +78,25 @@ function initials(name: string) {
   return ((parts[0]?.[0] ?? "D") + (parts[1]?.[0] ?? "")).toUpperCase();
 }
 
+function pickCardObjectPosition(dj: DjProfile) {
+  const slug = pickSlug(dj).toLowerCase();
+  const name = pickName(dj).toLowerCase();
+
+  if (slug === "gene-king" || name === "gene king") {
+    return "center 18%";
+  }
+
+  if (slug === "akea-velli" || name === "akea velli") {
+    return "center 34%";
+  }
+
+  if (slug === "dj-nicksalsa" || name === "dj nicksalsa") {
+    return "center 34%";
+  }
+
+  return "center";
+}
+
 export default async function BrowseDjsPage() {
   const supabase = await createClient();
 
@@ -124,6 +143,7 @@ export default async function BrowseDjsPage() {
                 const name = pickName(dj);
                 const slug = pickSlug(dj);
                 const photo = pickPhoto(dj);
+                const objectPosition = pickCardObjectPosition(dj);
 
                 return (
                   <Link
@@ -137,6 +157,7 @@ export default async function BrowseDjsPage() {
                           src={photo}
                           alt={name}
                           className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
+                          style={{ objectPosition }}
                         />
                       ) : (
                         <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-violet-950/70 via-black to-fuchsia-950/50">
