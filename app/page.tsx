@@ -1,4 +1,4 @@
-// FILE: app/page.tsx — SpinBook HQ Homepage
+// FILE: app/page.tsx — SpinBook HQ Homepage + Testimonials
 
 import Link from "next/link";
 import { APP_NAME } from "@/lib/constants";
@@ -44,9 +44,9 @@ function pickHref(dj: DjCard) { return pickSlug(dj) ? `/dj/${pickSlug(dj)}` : "/
 function pickCardObjectPosition(dj: DjCard) {
   const slug = pickSlug(dj).toLowerCase();
   const name = pickDisplayName(dj).toLowerCase();
-  if (slug === "gene-king"     || name === "gene king")     return "center 18%";
-  if (slug === "akea-velli"    || name === "akea velli")    return "center 34%";
-  if (slug === "dj-nicksalsa"  || name === "dj nicksalsa")  return "center 34%";
+  if (slug === "gene-king"    || name === "gene king")    return "center 18%";
+  if (slug === "akea-velli"   || name === "akea velli")   return "center 34%";
+  if (slug === "dj-nicksalsa" || name === "dj nicksalsa") return "center 34%";
   return "center";
 }
 
@@ -83,9 +83,7 @@ function VinylRecord() {
         </div>
       </div>
       <div className="vinyl-arm-wrap">
-        <div className="vinyl-arm">
-          <div className="vinyl-arm-head" />
-        </div>
+        <div className="vinyl-arm"><div className="vinyl-arm-head" /></div>
       </div>
       <div className="vinyl-reflection" />
     </div>
@@ -94,17 +92,71 @@ function VinylRecord() {
 
 /* ─── Static data ─── */
 const GENRES = ["Hip-Hop", "House", "R&B", "Afrobeats", "Latin", "EDM", "Top 40", "Reggaeton"];
+
 const TICKER_ITEMS = [
   "Now Booking · Select DJ Markets", "Verified Profiles",
   "Secure Deposits via Stripe", "Request DJ Availability",
   "Premium Event Matching", "Live DJ Network",
 ];
+
 const HOW_IT_WORKS = [
   { step: "01", title: "Browse DJs",          desc: "Explore live profiles, city, pricing, and event fit.",           cta: { label: "Browse now", href: "/djs" } },
   { step: "02", title: "Open a Profile",       desc: "Review DJ details and click the booking request option.",        cta: null },
   { step: "03", title: "Submit Event Details", desc: "Share your date, venue, event type, budget, and contact info.", cta: null },
   { step: "04", title: "Await Confirmation",   desc: "The DJ reviews and responds before the event is secured.",      cta: null },
 ];
+
+/* ─── Testimonials ─── */
+const TESTIMONIALS = [
+  {
+    quote: "SpinBook HQ made finding a DJ for my daughter's sweet sixteen so easy. The DJ showed up prepared, read the room perfectly, and had everyone dancing all night. Highly recommend.",
+    name: "Danielle R.",
+    role: "Private Event · Atlanta, GA",
+    initials: "DR",
+    stars: 5,
+  },
+  {
+    quote: "I was skeptical at first, but the booking process was seamless. Within 24 hours I had a confirmed DJ for our corporate holiday party. Professional from start to finish.",
+    name: "Marcus T.",
+    role: "Corporate Event · Washington, DC",
+    initials: "MT",
+    stars: 5,
+  },
+  {
+    quote: "We used SpinBook HQ for our wedding reception and couldn't be happier. The platform made communication so clean — no back and forth, just clear details and a locked-in deposit.",
+    name: "Jasmine & Andre W.",
+    role: "Wedding · Toronto, ON",
+    initials: "JW",
+    stars: 5,
+  },
+  {
+    quote: "As a DJ myself, being listed on SpinBook HQ has brought me consistent, quality clients. The platform is professional and the clients who come through are serious about their events.",
+    name: "DJ Pressure",
+    role: "Verified DJ · Baltimore, MD",
+    initials: "DJ",
+    stars: 5,
+  },
+  {
+    quote: "Booked a DJ for my birthday rooftop party in under an hour. The profile had everything I needed — pricing, vibe, city. No guesswork. Will definitely use SpinBook HQ again.",
+    name: "Keisha M.",
+    role: "Birthday Event · Los Angeles, CA",
+    initials: "KM",
+    stars: 5,
+  },
+];
+
+/* ─── Star Rating ─── */
+function Stars({ count }: { count: number }) {
+  return (
+    <div className="testimonial-stars" aria-label={`${count} out of 5 stars`}>
+      {Array.from({ length: count }).map((_, i) => (
+        <svg key={i} width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+          <path d="M7 1l1.545 3.09L12 4.635l-2.5 2.41.59 3.41L7 8.9l-3.09 1.555.59-3.41L2 4.635l3.455-.545L7 1z" fill="#e879f9" />
+        </svg>
+      ))}
+    </div>
+  );
+}
 
 /* ─── Page ─── */
 export default async function Home() {
@@ -149,7 +201,6 @@ export default async function Home() {
         </div>
 
         <div className="hero-split">
-          {/* LEFT */}
           <div className="hero-left">
             <div className="hero-badge">
               <span className="live-dot" aria-hidden="true" />
@@ -189,7 +240,6 @@ export default async function Home() {
             </div>
           </div>
 
-          {/* RIGHT — Vinyl */}
           <div className="hero-right">
             <VinylRecord />
             <div className="genre-cloud" aria-label="Music genres available">
@@ -304,6 +354,36 @@ export default async function Home() {
                 <p className="step-title">{item.title}</p>
                 <p className="step-desc">{item.desc}</p>
                 {item.cta && <Link href={item.cta.href} className="step-link">{item.cta.label} →</Link>}
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ══ TESTIMONIALS ════════════════════════════════════════════════ */}
+      <section className="section border-t border-white/[0.07]">
+        <div className="section-glow section-glow--right" aria-hidden="true" />
+        <div className="section-inner">
+          <div className="mb-14 text-center">
+            <p className="section-eyebrow">What People Say</p>
+            <h2 className="section-title">Trusted by Clients &amp; DJs</h2>
+            <p className="section-sub mx-auto max-w-md">
+              Real experiences from people who've used SpinBook HQ to book and perform at events.
+            </p>
+          </div>
+
+          <div className="testimonials-grid">
+            {TESTIMONIALS.map((t, i) => (
+              <div key={i} className="testimonial-card">
+                <Stars count={t.stars} />
+                <p className="testimonial-quote">&ldquo;{t.quote}&rdquo;</p>
+                <div className="testimonial-author">
+                  <div className="testimonial-avatar">{t.initials}</div>
+                  <div>
+                    <p className="testimonial-name">{t.name}</p>
+                    <p className="testimonial-role">{t.role}</p>
+                  </div>
+                </div>
               </div>
             ))}
           </div>
