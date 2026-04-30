@@ -123,7 +123,7 @@ const TESTIMONIALS = [
     stars: 5,
   },
   {
-    quote: "We used SpinBook HQ for our wedding reception and couldn't be happier. The platform made communication so clean — no back and forth, just clear details and a locked-in deposit.",
+    quote: "We used SpinBook HQ for our wedding reception and couldn't be happier. The platform made communication so clean, no back and forth, just clear details and a locked in deposit, and we had so much fun with the DJ services.",
     name: "Jasmine & Andre W.",
     role: "Wedding · Toronto, ON",
     initials: "JW",
@@ -137,7 +137,7 @@ const TESTIMONIALS = [
     stars: 5,
   },
   {
-    quote: "Booked a DJ for my birthday rooftop party in under an hour. The profile had everything I needed — pricing, vibe, city. No guesswork. Will definitely use SpinBook HQ again.",
+    quote: "Booked a DJ for my birthday rooftop party in under an hour. The profile had everything I needed! OMG from pricing, vibe, city. No guesswork. Will definitely use SpinBook HQ again.",
     name: "Keisha M.",
     role: "Birthday Event · Los Angeles, CA",
     initials: "KM",
