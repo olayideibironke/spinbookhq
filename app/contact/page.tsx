@@ -1,215 +1,210 @@
-// FILE: app/contact/page.tsx
+// FILE: app/contact/page.tsx — SpinBook HQ Premium Revamp
+
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
-export default function ContactPage() {
-  const FORM_ACTION = "https://formspree.io/f/mlgbwagq";
-
+/* ─── EQ Bars ─── */
+function EqBars({ count = 10, className = "" }: { count?: number; className?: string }) {
+  const allBars = [
+    { delay: "0s",    max: "38px" }, { delay: "0.12s", max: "24px" },
+    { delay: "0.22s", max: "52px" }, { delay: "0.08s", max: "30px" },
+    { delay: "0.32s", max: "60px" }, { delay: "0.18s", max: "22px" },
+    { delay: "0.28s", max: "46px" }, { delay: "0.04s", max: "34px" },
+    { delay: "0.14s", max: "42px" }, { delay: "0.36s", max: "26px" },
+  ];
   return (
-    <main className="mx-auto w-full max-w-6xl px-6 py-14">
-      {/* Background (matches luxury vibe) */}
-      <div className="relative overflow-hidden rounded-[2.25rem] border border-white/10 bg-black/40 shadow-[0_24px_80px_rgba(0,0,0,0.55)] backdrop-blur">
-        <div className="absolute inset-0 -z-10">
-          <div className="absolute inset-0 bg-[#070812]" />
-          <div className="absolute inset-0 bg-[radial-gradient(1200px_650px_at_50%_-10%,rgba(255,255,255,0.08),transparent_55%)]" />
-          <div className="absolute inset-0 bg-[radial-gradient(900px_520px_at_14%_28%,rgba(124,58,237,0.22),transparent_60%)]" />
-          <div className="absolute inset-0 bg-[radial-gradient(900px_520px_at_86%_22%,rgba(59,130,246,0.14),transparent_62%)]" />
-          <div className="absolute inset-0 bg-[radial-gradient(900px_520px_at_62%_88%,rgba(236,72,153,0.12),transparent_62%)]" />
-          <div className="absolute inset-0 opacity-[0.08] [background-image:linear-gradient(to_right,rgba(255,255,255,0.10)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.10)_1px,transparent_1px)] [background-size:84px_84px]" />
-          <div className="absolute inset-0 bg-[radial-gradient(900px_520px_at_50%_70%,transparent_55%,rgba(0,0,0,0.55)_100%)]" />
-          <div className="absolute inset-0 backdrop-blur-3xl" />
+    <div className={`eq-bars-wrap ${className}`} aria-hidden="true">
+      {allBars.slice(0, count).map((bar, i) => (
+        <span key={i} className="eq-bar"
+          style={{ "--delay": bar.delay, "--max-h": bar.max } as React.CSSProperties}
+        />
+      ))}
+    </div>
+  );
+}
+
+const FORM_ACTION = "https://formspree.io/f/mlgbwagq";
+
+const CONTACT_CARDS = [
+  {
+    icon: "✉",
+    label: "Email",
+    value: "info@spinbookhq.com",
+    href: "mailto:info@spinbookhq.com",
+    note: "Best for detailed requests and confirmations.",
+  },
+  {
+    icon: "☎",
+    label: "Phone",
+    value: "+1 (202) 765-9663",
+    href: "tel:+12027659663",
+    note: "For urgent support and quick questions.",
+  },
+  {
+    icon: "⚡",
+    label: "Response Time",
+    value: "Within 24 hours",
+    href: null,
+    note: "Faster during business hours.",
+  },
+];
+
+export default function ContactPage() {
+  return (
+    <main className="min-h-screen overflow-x-hidden" style={{ background: "var(--bg)" }}>
+
+      {/* ══ HERO ════════════════════════════════════════════════════════ */}
+      <section className="contact-hero">
+        <div className="hero-glows" aria-hidden="true">
+          <div className="glow glow-1" />
+          <div className="glow glow-2" />
+          <div className="glow glow-3" />
+          <div className="hero-grid-overlay" />
         </div>
 
-        <div className="px-6 py-10 sm:px-10 sm:py-12">
-          {/* Top bar */}
-          <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-extrabold tracking-[0.2em] text-white/70">
-                CONTACT
-              </div>
-
-              <h1 className="mt-4 text-balance text-3xl font-extrabold tracking-tight text-white sm:text-4xl">
-                Contact{" "}
-                <span className="bg-gradient-to-r from-violet-200 via-fuchsia-200 to-indigo-200 bg-clip-text text-transparent">
-                  SpinBook HQ
-                </span>
-              </h1>
-
-              <p className="mt-3 max-w-2xl text-sm leading-relaxed text-white/70">
-                For bookings, questions, or support, send us a message here. We
-                typically respond within 24 hours.
-              </p>
+        <div className="contact-hero-inner">
+          <div className="contact-hero-left">
+            <div className="hero-badge">
+              <span className="live-dot" aria-hidden="true" />
+              Get In Touch
             </div>
 
-            <Link
-              href="/"
-              className="inline-flex items-center justify-center rounded-full border border-white/15 bg-white/[0.03] px-4 py-2 text-sm font-semibold text-white/80 shadow-[0_0_0_1px_rgba(255,255,255,0.03)] hover:bg-white/[0.06] hover:text-white"
-            >
+            <h1 className="contact-headline">
+              <span className="contact-hl-top">Contact</span>
+              <span className="contact-hl-main">SpinBook<br />HQ</span>
+            </h1>
+
+            <EqBars count={10} className="contact-eq" />
+
+            <p className="contact-hero-sub">
+              For bookings, questions, or support — send us a message and we
+              typically respond within 24 hours.
+            </p>
+
+            <Link href="/" className="cta-ghost" style={{ paddingLeft: 0 }}>
               ← Back to home
             </Link>
           </div>
 
-          {/* Divider */}
-          <div className="pointer-events-none mt-10 h-px w-full bg-gradient-to-r from-transparent via-white/15 to-transparent" />
-
-          {/* Content grid */}
-          <div className="mt-10 grid gap-8 lg:grid-cols-5">
-            {/* Left: Contact cards */}
-            <div className="lg:col-span-2">
-              <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6 shadow-[0_18px_60px_rgba(0,0,0,0.45)] backdrop-blur">
-                <div className="text-xs font-extrabold tracking-[0.2em] text-white/60">
-                  REACH US
+          {/* Contact cards */}
+          <div className="contact-cards-col">
+            {CONTACT_CARDS.map((card) => (
+              <div key={card.label} className="contact-info-card">
+                <div className="contact-card-icon">{card.icon}</div>
+                <div className="contact-card-body">
+                  <p className="contact-card-label">{card.label}</p>
+                  {card.href ? (
+                    <a href={card.href} className="contact-card-value contact-card-link">
+                      {card.value}
+                    </a>
+                  ) : (
+                    <p className="contact-card-value">{card.value}</p>
+                  )}
+                  <p className="contact-card-note">{card.note}</p>
                 </div>
-
-                <div className="mt-4 space-y-4">
-                  <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
-                    <div className="text-xs font-bold text-white/60">EMAIL</div>
-                    <div className="mt-1 text-sm font-semibold text-white">
-                      info@spinbookhq.com
-                    </div>
-                    <p className="mt-1 text-xs text-white/55">
-                      Best for detailed requests and confirmations.
-                    </p>
-                  </div>
-
-                  <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
-                    <div className="text-xs font-bold text-white/60">PHONE</div>
-                    <div className="mt-1 text-sm font-semibold text-white">
-                      +1 (202) 765-9663
-                    </div>
-                    <p className="mt-1 text-xs text-white/55">
-                      For urgent support and quick questions.
-                    </p>
-                  </div>
-
-                  <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
-                    <div className="text-xs font-bold text-white/60">
-                      RESPONSE TIME
-                    </div>
-                    <div className="mt-1 text-sm font-semibold text-white">
-                      Within 24 hours
-                    </div>
-                    <p className="mt-1 text-xs text-white/55">
-                      Faster during business hours.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="pointer-events-none mt-6 h-px w-full bg-gradient-to-r from-transparent via-white/10 to-transparent" />
-
-                <p className="mt-6 text-xs leading-relaxed text-white/55">
-                  If you’re contacting us about a booking, include the DJ name,
-                  event date, location, and your budget range for a faster
-                  response.
-                </p>
               </div>
-            </div>
+            ))}
 
-            {/* Right: Form */}
-            <div className="lg:col-span-3">
-              <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6 shadow-[0_18px_60px_rgba(0,0,0,0.45)] backdrop-blur sm:p-8">
-                <div className="flex items-start justify-between gap-6">
-                  <div>
-                    <div className="text-xs font-extrabold tracking-[0.2em] text-white/60">
-                      SEND A MESSAGE
-                    </div>
-                    <h2 className="mt-2 text-xl font-extrabold text-white">
-                      We’ll get back to you
-                    </h2>
-                    <p className="mt-2 text-sm text-white/65">
-                      Fill out the form below and we’ll respond as soon as
-                      possible.
-                    </p>
-                  </div>
-
-                  <div className="hidden sm:block rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-xs font-bold text-white/70">
-                    Secure form
-                  </div>
-                </div>
-
-                <div className="pointer-events-none mt-6 h-px w-full bg-gradient-to-r from-transparent via-white/10 to-transparent" />
-
-                {/* ✅ Keep Formspree + fields unchanged */}
-                <form action={FORM_ACTION} method="POST" className="mt-7 space-y-6">
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div className="space-y-2">
-                      <label htmlFor="name" className="text-sm font-semibold text-white/85">
-                        Full name
-                      </label>
-                      <input
-                        id="name"
-                        name="name"
-                        required
-                        placeholder="Your name"
-                        className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white placeholder:text-white/35 outline-none transition focus:border-white/25 focus:bg-black/35"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <label htmlFor="email" className="text-sm font-semibold text-white/85">
-                        Email
-                      </label>
-                      <input
-                        id="email"
-                        name="email"
-                        type="email"
-                        required
-                        placeholder="you@email.com"
-                        className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white placeholder:text-white/35 outline-none transition focus:border-white/25 focus:bg-black/35"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <label htmlFor="subject" className="text-sm font-semibold text-white/85">
-                      Subject
-                    </label>
-                    <input
-                      id="subject"
-                      name="subject"
-                      required
-                      placeholder="What’s this about?"
-                      className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white placeholder:text-white/35 outline-none transition focus:border-white/25 focus:bg-black/35"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <label htmlFor="message" className="text-sm font-semibold text-white/85">
-                      Message
-                    </label>
-                    <textarea
-                      id="message"
-                      name="message"
-                      required
-                      placeholder="Type your message…"
-                      rows={7}
-                      className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white placeholder:text-white/35 outline-none transition focus:border-white/25 focus:bg-black/35"
-                    />
-                  </div>
-
-                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                    <p className="text-xs leading-relaxed text-white/55">
-                      By submitting, you agree SpinBook HQ may contact you
-                      regarding your request.
-                    </p>
-
-                    <button
-                      type="submit"
-                      className="inline-flex items-center justify-center rounded-2xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-6 py-3 text-sm font-extrabold text-white shadow-lg shadow-violet-600/20 ring-1 ring-white/10 transition hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-violet-400/40"
-                    >
-                      Send message →
-                    </button>
-                  </div>
-                </form>
-              </div>
+            <div className="contact-tip">
+              <span className="contact-tip-icon" aria-hidden="true">💡</span>
+              <p>
+                For booking inquiries, include the DJ name, event date, location,
+                and budget range for a faster response.
+              </p>
             </div>
           </div>
-
-          {/* Bottom spacing */}
-          <div className="mt-10" />
         </div>
-      </div>
+      </section>
+
+      {/* ══ FORM SECTION ════════════════════════════════════════════════ */}
+      <section className="section border-t border-white/[0.07]">
+        <div className="section-glow section-glow--right" aria-hidden="true" />
+        <div className="section-inner">
+
+          <div className="contact-form-wrap">
+            {/* Form header */}
+            <div className="contact-form-header">
+              <div>
+                <p className="section-eyebrow">Send a Message</p>
+                <h2 className="contact-form-title">We'll get back to you</h2>
+                <p className="section-sub">Fill out the form below and we'll respond as soon as possible.</p>
+              </div>
+              <div className="contact-secure-badge">
+                <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true">
+                  <path d="M6.5 1L2 3v4c0 2.5 2 4.5 4.5 5.5C9 11.5 11 9.5 11 7V3L6.5 1z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
+                </svg>
+                Secure form
+              </div>
+            </div>
+
+            {/* Form */}
+            <form action={FORM_ACTION} method="POST" className="contact-form">
+              <div className="contact-form-row">
+                <div className="contact-field">
+                  <label htmlFor="name" className="contact-label">Full name</label>
+                  <input
+                    id="name"
+                    name="name"
+                    required
+                    placeholder="Your name"
+                    className="contact-input"
+                  />
+                </div>
+                <div className="contact-field">
+                  <label htmlFor="email" className="contact-label">Email</label>
+                  <input
+                    id="email"
+                    name="email"
+                    type="email"
+                    required
+                    placeholder="you@email.com"
+                    className="contact-input"
+                  />
+                </div>
+              </div>
+
+              <div className="contact-field">
+                <label htmlFor="subject" className="contact-label">Subject</label>
+                <input
+                  id="subject"
+                  name="subject"
+                  required
+                  placeholder="What's this about?"
+                  className="contact-input"
+                />
+              </div>
+
+              <div className="contact-field">
+                <label htmlFor="message" className="contact-label">Message</label>
+                <textarea
+                  id="message"
+                  name="message"
+                  required
+                  placeholder="Type your message…"
+                  rows={7}
+                  className="contact-input contact-textarea"
+                />
+              </div>
+
+              <div className="contact-form-footer">
+                <p className="contact-disclaimer">
+                  By submitting, you agree SpinBook HQ may contact you regarding
+                  your request.
+                </p>
+                <button type="submit" className="cta-primary">
+                  Send Message
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <path d="M2 8h12M10 4l4 4-4 4" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </button>
+              </div>
+            </form>
+          </div>
+
+        </div>
+      </section>
+
     </main>
   );
 }
