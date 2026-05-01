@@ -90,6 +90,22 @@ function VinylRecord() {
   );
 }
 
+/* ─── Star Rating — orange, supports 4 or 5 ─── */
+function Stars({ count }: { count: number }) {
+  return (
+    <div className="testimonial-stars" aria-label={`${count} out of 5 stars`}>
+      {Array.from({ length: 5 }).map((_, i) => (
+        <svg key={i} width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path
+            d="M8 1l1.76 3.52L14 5.27l-3 2.9.71 4.1L8 10.1l-3.71 2.17.71-4.1-3-2.9 4.24-.75L8 1z"
+            fill={i < count ? "#f97316" : "rgba(255,255,255,0.12)"}
+          />
+        </svg>
+      ))}
+    </div>
+  );
+}
+
 /* ─── Static data ─── */
 const GENRES = ["Hip-Hop", "House", "R&B", "Afrobeats", "Latin", "EDM", "Top 40", "Reggaeton"];
 
@@ -106,7 +122,7 @@ const HOW_IT_WORKS = [
   { step: "04", title: "Await Confirmation",   desc: "The DJ reviews and responds before the event is secured.",      cta: null },
 ];
 
-/* ─── Testimonials ─── */
+/* ─── Testimonials — 3x five stars, 2x four stars ─── */
 const TESTIMONIALS = [
   {
     quote: "SpinBook HQ made finding a DJ for my daughter's sweet sixteen so easy. The DJ showed up prepared, read the room perfectly, and had everyone dancing all night. Highly recommend.",
@@ -134,29 +150,16 @@ const TESTIMONIALS = [
     name: "DJ Pressure",
     role: "Verified DJ · Baltimore, MD",
     initials: "DJ",
-    stars: 5,
+    stars: 4,
   },
   {
     quote: "Booked a DJ for my birthday rooftop party in under an hour. The profile had everything I needed! OMG from pricing, vibe, city. No guesswork. Will definitely use SpinBook HQ again.",
     name: "Keisha M.",
     role: "Birthday Event · Los Angeles, CA",
     initials: "KM",
-    stars: 5,
+    stars: 4,
   },
 ];
-
-/* ─── Star Rating ─── */
-function Stars({ count }: { count: number }) {
-  return (
-    <div className="testimonial-stars" aria-label={`${count} out of 5 stars`}>
-      {Array.from({ length: count }).map((_, i) => (
-        <svg key={i} width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-          <path d="M7 1l1.545 3.09L12 4.635l-2.5 2.41.59 3.41L7 8.9l-3.09 1.555.59-3.41L2 4.635l3.455-.545L7 1z" fill="#e879f9" />
-        </svg>
-      ))}
-    </div>
-  );
-}
 
 /* ─── Page ─── */
 export default async function Home() {
